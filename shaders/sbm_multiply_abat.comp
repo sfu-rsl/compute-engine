@@ -90,7 +90,7 @@ void main() {
         if (elem < szc) {
             value += mulABAT(pair.x, c_row, c_col);
         }
-
+        barrier();
     }
 
     if (elem < szc) {
