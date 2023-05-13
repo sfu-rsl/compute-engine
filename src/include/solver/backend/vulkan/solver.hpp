@@ -453,7 +453,7 @@ namespace compute
                              bool add = true, bool transpose_right = false)
         {
             const uint32_t szc = static_cast<uint32_t>(dim1.first * dim2.second);
-            const int32_t local_size_x = 32;
+            const int32_t local_size_x = 256;
             const uint32_t wgx = ceil_div(n * szc, static_cast<uint32_t>(local_size_x));
             // std::cout << "wgx = " << wgx << "\n";
             // auto tc0 = std::chrono::high_resolution_clock::now();
