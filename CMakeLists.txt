@@ -55,6 +55,8 @@ src/CustomOp.cpp
 )
 
 # compile shaders
+find_package(Python3 REQUIRED COMPONENTS Interpreter)
+
 file(GLOB_RECURSE SHADERS
 "shaders/*.comp"
 )
@@ -64,7 +66,7 @@ DESTINATION ${CMAKE_CURRENT_BINARY_DIR}/data/)
 
 add_custom_target(compile_shaders
 COMMAND mkdir -p ${CMAKE_CURRENT_SOURCE_DIR}/src/include/solver/shaders
-COMMAND python3 ${CMAKE_CURRENT_SOURCE_DIR}/external/kompute/scripts/convert_shaders_custom.py -p shaders -s glslangValidator -c ${CMAKE_CURRENT_SOURCE_DIR}/src/include/solver/shaders/
+COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/external/kompute/scripts/convert_shaders_custom.py -p shaders -s glslangValidator -c ${CMAKE_CURRENT_SOURCE_DIR}/src/include/solver/shaders/
 DEPENDS ${SHADERS}
 WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
 )
