@@ -255,6 +255,7 @@ namespace compute
                 // bkn = dot(rk1, zk1) and bkd = dot(rk, zk)
                 // we already have akn = dot(rk, zk)
                 seq1->inner_product(rk, zk, ak_scratch, akd);
+                seq1->insert_cc_barrier(); // need this
                 // compute bkn
                 seq1->div_vec(akd, akn, akn, 1);
                 seq1->insert_cc_barrier();
@@ -263,6 +264,7 @@ namespace compute
                 auto zk1 = zk; // OK, since we no longer need zk given akn
                 auto bk = akn;
                 seq1->add_vec(zk1, pk, pk, bk);
+                seq1->insert_cc_barrier(); // need this
                 seq1->copy_vec(akd, akn, 1); // akn = a(k+1)n for next iteration
                 // seq1->insert_cc_barrier();
                 // compute dot(rk1, rk1)
