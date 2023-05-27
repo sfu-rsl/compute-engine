@@ -22,10 +22,10 @@ namespace compute
         size_t max_iterations;
 
         // Engine
-        VulkanComputeEngine &engine;
+        ComputeEngine &engine;
 
         // Buffers
-        VCBPtr<DataType> l0, l1, vk, ak_scratch, akn, akd, rk, zk, pk, rk1;
+        BufferPtr<DataType> l0, l1, vk, ak_scratch, akn, akd, rk, zk, pk, rk1;
 
         // Matrices
         MatPtr<DataType> Minv; // preconditioner;
@@ -34,7 +34,7 @@ namespace compute
         std::shared_ptr<SolverSeq> init_seq, reset_seq, seq1, pc_seq;
 
     public:
-        PCGSolver(VulkanComputeEngine &engine) : init(false), tol(1e-6), residual(-1.0), absolute_tol(true),
+        PCGSolver(ComputeEngine &engine) : init(false), tol(1e-6), residual(-1.0), absolute_tol(true),
                                                  preconditioner(Preconditioner::Schur), max_iterations(0), engine(engine)
         {
             Minv = std::make_shared<SparseBlockMatrix<DataType>>(engine);
@@ -266,10 +266,7 @@ namespace compute
                 seq1->add_vec(zk1, pk, pk, bk);
                 seq1->insert_cc_barrier(); // need this
                 seq1->copy_vec(akd, akn, 1); // akn = a(k+1)n for next iteration
-                // seq1->insert_cc_barrier();
                 // compute dot(rk1, rk1)
-                // seq1->self_inner_product(rk, ak_scratch, akd);
-                // seq1->insert_cc_barrier();
                 seq1->sync_local<DataType>({akd}, {{0, 1}});
             }
             // end of pre-loop initialization

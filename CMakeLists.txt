@@ -2,7 +2,12 @@ cmake_minimum_required(VERSION 3.4.1)
 project(spearhead VERSION 0.1.0)
 add_compile_definitions(SPDLOG_ACTIVE_LEVEL=5)
 add_compile_definitions(KOMPUTE_VK_API_MAJOR_VERSION=1 KOMPUTE_VK_API_MINOR_VERSION=2)
-set(CMAKE_CXX_STANDARD 14) # for parallel for loops
+
+# find_package(IntelSYCL REQUIRED)
+remove_definitions(-EIGEN_USE_SYCL)
+# set(CMAKE_C_COMPILER "icx")
+# set(CMAKE_CXX_COMPILER "syclcc")
+set(CMAKE_CXX_STANDARD 17) # for parallel for loops
 # set(CMAKE_CXX_STANDARD_REQUIRED ON)
 # set(CMAKE_CXX_EXTENSIONS OFF)
 # add_compile_options(-fsanitize=thread)
@@ -33,6 +38,7 @@ set(KOMPUTE_OPT_DISABLE_VULKAN_VERSION_CHECK ON)
 set(KOMPUTE_OPT_RELAX ON)
 set(KOMPUTE_OPT_USE_BUILT_IN_GOOGLE_TEST OFF)
 set(KOMPUTE_OPT_DISABLE_VK_DEBUG_LAYERS ON)
+# set(KOMPUTE_OPT_USE_SPDLOG ON)
 
 # General
 set(BUILD_SHARED_LIBS ON CACHE BOOL "Build shared libraries." FORCE)
@@ -40,7 +46,7 @@ set(BUILD_SHARED_LIBS ON CACHE BOOL "Build shared libraries." FORCE)
 
 # It is necessary to pass the DEBUG or RELEASE flag accordingly to Kompute
 set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -DDEBUG=1 ${KOMPUTE_EXTRA_CXX_FLAGS} -Wall -Wextra")
-set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -DRELEASE=1 ${KOMPUTE_EXTRA_CXX_FLAGS}")
+set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -DRELEASE=1 ${KOMPUTE_EXTRA_CXX_FLAGS} -march=native")
 
 add_subdirectory(external/kompute)
 
@@ -49,6 +55,8 @@ find_package(Threads REQUIRED)
 
 # library
 # option(SPEARHEAD_SHARED_LIBS "Build as a shared library if true." 0)
+add_compile_definitions(CE_SYCL_BACKEND=1)
+
 add_library(compute SHARED
 src/backend/vulkan/compute_engine.cpp
 src/CustomOp.cpp

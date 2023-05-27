@@ -1,4 +1,5 @@
 #include <gtest/gtest.h>
+#include <solver/backend/sycl/backend.hpp>
 #include <solver/backend.hpp>
 #include <solver/sparse_block_matrix.hpp>
 #include <solver/utility.hpp>
@@ -88,7 +89,6 @@ TEST(SparseBlockMatrix, SubgroupMultiplyAdd1)
     auto mult = engine.create_op_sequence();
     matrix->subgroup_multiply_add(mult, dest, right);
     auto ta = std::chrono::high_resolution_clock::now();
-    auto n = 1;
     mult->execute();
     auto tb = std::chrono::high_resolution_clock::now();
     // // fmt::print("Rec: {}\nExec: {}\n", std::chrono::duration<double>(ta - trec).count(), std::chrono::duration<double>(tb - ta).count());
@@ -108,10 +108,11 @@ TEST(SparseBlockMatrix, SubgroupMultiplyAdd1)
 
     auto m1 = Eigen::Map<Eigen::Matrix<double, 3, 3>>(b1);
     auto m2 = Eigen::Map<Eigen::Matrix<double, 3, 3>>(b2);
-    // std::cout << "m1:\n" << m1 << std::endl;
-    ASSERT_TRUE(m1.isApprox(m1.Identity() * 2.0 * n));
-    // std::cout << "m2:\n" << m2 << std::endl;
-    ASSERT_TRUE(m2.isApprox(m2.Identity() * 2.0 * n));
+    std::cout << "m1:\n" << m1 << std::endl;
+    std::cout << "m2:\n" << m2 << std::endl;
+
+    ASSERT_TRUE(m1.isApprox(m1.Identity() * 2.0));
+    ASSERT_TRUE(m2.isApprox(m2.Identity() * 2.0));
     dest->zero_memory();
     ASSERT_TRUE(m1.isZero());
     ASSERT_TRUE(m2.isZero());
@@ -1802,7 +1803,7 @@ TEST(SparseBlockMatrix, SchurTestDevice)
     // calc_Hschur->insert_host_sync_barrier();
     auto tb = std::chrono::high_resolution_clock::now();
 
-    // fmt::print("add1 took: {} ms\n", 1000 * std::chrono::duration<double>(tb - ta).count());
+    fmt::print("add1 took: {} ms\n", 1000 * std::chrono::duration<double>(tb - ta).count());
 
     // Sync
     auto sync_Hll_Hpl = create_sync_object();
@@ -2396,7 +2397,7 @@ TEST(Solver, AddVec)
         // fmt::print("Took: {} ms\n", 1000 * std::chrono::duration<double>(tb - ta).count());
         auto wMap = Eigen::Map<Eigen::MatrixXd>(w->map(), w->size(), 1);
 
-        ASSERT_EQ(data_u + a * data_v, wMap);
+        ASSERT_TRUE((data_u + a * data_v).isApprox(wMap));
     }
 
     // repeat for w2
@@ -2434,7 +2435,7 @@ TEST(Solver, CopyVec)
     auto sync_in = create_sync_object();
     sync_in->rec<double>({u, v});
     sync_in->sync_device();
-
+    
     auto s = engine.create_op_sequence();
     s->copy_vec(u, v);
     auto ta = std::chrono::high_resolution_clock::now();

@@ -23,7 +23,7 @@ namespace compute
     {
 
     private:
-        VulkanComputeEngine *owner;
+        ComputeEngine *owner;
         std::shared_ptr<SolverSeq> seq_local;
         std::shared_ptr<SolverSeq> seq_device;
         // std::vector<std::shared_ptr<kp::Tensor>> to_sync;
@@ -37,7 +37,7 @@ namespace compute
         }
 
         template <typename DataType>
-        void rec(const std::vector<VCBPtr<DataType>> &buffers, const std::vector<std::pair<uint32_t, uint32_t>> &ranges = {})
+        void rec(const std::vector<BufferPtr<DataType>> &buffers, const std::vector<std::pair<uint32_t, uint32_t>> &ranges = {})
         {
 
             seq_device->sync_device<DataType>(buffers, ranges);

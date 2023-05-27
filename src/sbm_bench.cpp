@@ -1,5 +1,6 @@
 
 #include <iostream>
+#include <solver/backend/sycl/backend.hpp>
 #include <solver/backend.hpp>
 #include <solver/sparse_block_matrix.hpp>
 #include <solver/utility.hpp>
@@ -859,6 +860,21 @@ static void BM_DENSE_LDLT(benchmark::State &state)
     delete solver;
 }
 
+// static void BM_SUBMISSION(benchmark::State &state)
+// {
+//     using namespace compute;
+
+//     auto btd = BufferType::DeviceCached;
+
+//     auto seq = engine.create_op_sequence();
+//     // Run Solver
+//     for (auto _ : state)
+//     {
+//         seq->execute();
+//     }
+
+// }
+
 BENCHMARK(BM_LDLT)->Unit(benchmark::kMillisecond);
 BENCHMARK(BM_DENSE_LDLT)->Unit(benchmark::kMillisecond);
 
@@ -884,5 +900,6 @@ BENCHMARK(BM_ZERO_MEMORY)->Unit(benchmark::kMillisecond);
 BENCHMARK(BM_COPY_BLOCKS)->Unit(benchmark::kMillisecond);
 
 BENCHMARK(BM_INVERSION_OP)->Unit(benchmark::kMillisecond);
+// BENCHMARK(BM_SUBMISSION)->Unit(benchmark::kMillisecond);
 
 BENCHMARK_MAIN();

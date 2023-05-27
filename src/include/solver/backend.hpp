@@ -2,8 +2,7 @@
 
 #include <memory>
 
-// Default to vulkan backend
-#include <solver/backend/vulkan/backend.hpp>
+// No default backend
 
 namespace compute
 {

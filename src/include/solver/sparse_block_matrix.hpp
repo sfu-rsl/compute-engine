@@ -1,5 +1,6 @@
 
 #pragma once
+#include "solver/gpu_buffer.hpp"
 #include <mutex>
 #include <unordered_set>
 #include <type_traits>
@@ -802,7 +803,13 @@ namespace compute
             auto list_buf_type = get_list_buffer_type();
             auto bufPairs = owner->create_buffer<uint32_t>(nullptr, total_num_pairs * 2, list_buf_type);
             auto bufLists = owner->create_buffer<uint32_t>(nullptr, total_num_lists * 3, list_buf_type);
+            // if (list_buf_type == BufferType::Host) {
+            //     std::cout << "type is host!\n";
+            // }
+            // else {
+            //                     std::cout << "type not host!\n";
 
+            // }
             rec_multiply(global_mul_pairs, mul_lists, block_buffer, right->get_buffer(), dest->get_buffer(), bufLists, bufPairs, seq, add, true);
         }
 
@@ -862,9 +869,9 @@ namespace compute
                 {
                     if (it.second.indices.size() > 0)
                     {
-                        auto buf_indices = this->owner->create_buffer<uint32_t>(reinterpret_cast<uint32_t *>(it.second.indices.data()), it.second.indices.size(), list_buf_type);
-                        auto buf_offsets = this->owner->create_buffer<uint32_t>(reinterpret_cast<uint32_t *>(it.second.offsets.data()), it.second.offsets.size(), list_buf_type);
-                        auto buf_ptr = this->owner->create_buffer<uint32_t>(reinterpret_cast<uint32_t *>(it.second.ptr.data()), it.second.ptr.size(), list_buf_type);
+                        auto buf_indices = this->owner->template create_buffer<uint32_t>(reinterpret_cast<uint32_t *>(it.second.indices.data()), it.second.indices.size(), list_buf_type);
+                        auto buf_offsets = this->owner->template create_buffer<uint32_t>(reinterpret_cast<uint32_t *>(it.second.offsets.data()), it.second.offsets.size(), list_buf_type);
+                        auto buf_ptr = this->owner->template create_buffer<uint32_t>(reinterpret_cast<uint32_t *>(it.second.ptr.data()), it.second.ptr.size(), list_buf_type);
                         buffer_map[it.first] = {buf_indices, buf_offsets, buf_ptr};
                     }
                 }
