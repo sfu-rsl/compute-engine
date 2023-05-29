@@ -3,7 +3,7 @@
 This is a work-in-progress library which implements sparse matrix-matrix and matrix-vector operations to compute the Schur complement for visual and visual-inertial bundle adjustment using Vulkan compute shaders.
 Please see the [main project](https://github.com/sfu-rsl/gpu-block-solver) for more information.
 
-## Requirements
+## Hardware Requirements
 
 - A GPU which supports Vulkan 1.2 and double-precision floats in shaders
 
@@ -11,13 +11,12 @@ Please see the [main project](https://github.com/sfu-rsl/gpu-block-solver) for m
 
 Dependencies:
 
-- Vulkan 1.2
+- Vulkan 1.2 (may require Vulkan 1.3 SDK/headers)
 - Modified Kompute Library (submodule)
 - Eigen 3.1
 - Google Test
 - Google Benchmark
 - robin_hood unordered_map (included)
-- OpenMP (only used for experimental CPU backend)
 - glslangValidator (needs to support `--target-env vulkan1.1` flag)
   - This is available from the Ubuntu `vulkan-tools` package or can also be [built manually](https://github.com/KhronosGroup/glslang) for a more up-to-date version.
 - Python 3
@@ -25,7 +24,7 @@ Dependencies:
 
 ```bash
 # Clone
-git clone (url) --recursive
+git clone https://github.com/sfu-rsl/compute-engine.git --recursive
 
 # After cloning
 mkdir build
@@ -41,7 +40,7 @@ make -j
 
 ## Locking the GPU Frequencies
 
-GPU frequency scaling greatly impacts the performance. For NVIDIA GPUs, the following commands can be used to lock the frequencies:
+GPU frequency scaling may affect the performance, especially for small workloads. For NVIDIA GPUs on Linux, the following commands can be used to lock the frequencies, but be sure to check for specific instructions for your OS, GPU, and driver version.
 
 ```bash
 # Setting PowerMizer mode to prefer maximum performance
@@ -55,8 +54,8 @@ sudo nvidia-smi -pm 1
 nvidia-smi -q -d SUPPORTED_CLOCKS
 
 # Set clocks to max supported
-sudo nvidia-smi -lgc (max graphics clock)
-sudo nvidia-smi -lmc (max memory clock)
+sudo nvidia-smi -lgc <max graphics clock>
+sudo nvidia-smi -lmc <max memory clock>
 
 
 # To reset once done
