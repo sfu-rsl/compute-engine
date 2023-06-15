@@ -33,10 +33,10 @@ namespace compute
 
         std::vector<std::function<void()>> init_sequence;
         std::vector<std::function<void()>> sequence;
-        std::vector<sycl::event> events;
+        // std::vector<sycl::event> events;
         sycl::queue& queue;
         // bool barrierRequested;
-        std::vector<sycl::event> barrier_events;
+        // std::vector<sycl::event> barrier_events;
 
     public:
         SYCLSolverSeq(SYCLComputeEngine *engine, sycl::queue& queue) : engine(engine), init(true), queue(queue), init_ops(false) //, barrierRequested(false)
@@ -91,7 +91,7 @@ namespace compute
                 const uint32_t bsize = std::min(static_cast<uint32_t>(src->size()), size);
                 // auto& queue = engine->get_queue();
                 auto ev = queue.copy(src->get_op_ptr(), dest->get_op_ptr(), bsize);
-                events.push_back(ev);
+                // events.push_back(ev);
             });
         }
 
@@ -101,7 +101,7 @@ namespace compute
             sequence.push_back([=](){
                 // auto & queue= engine->get_queue();
                 auto ev = queue.fill(dest->get_op_ptr(), value, dest->size());
-                events.push_back(ev);
+                // events.push_back(ev);
             });
 
         }
@@ -123,7 +123,7 @@ namespace compute
                             c[idx] = x[idx] + factor*y[idx];
                         });
                 });
-                events.push_back(ev);
+                // events.push_back(ev);
             });
         }
 
@@ -152,7 +152,7 @@ namespace compute
                     }
  
                 });
-                events.push_back(ev);
+                // events.push_back(ev);
             });
         }
 
@@ -172,7 +172,7 @@ namespace compute
                             c[idx] = x[idx] / y[idx];
                         });
                 });
-                events.push_back(ev);
+                // events.push_back(ev);
             });
         }
 
@@ -366,7 +366,7 @@ namespace compute
                     });
 
                 });
-                events.push_back(ev);
+                // events.push_back(ev);
             });
         }
 
@@ -491,7 +491,7 @@ namespace compute
                     });
 
                 });
-                events.push_back(ev);
+                // events.push_back(ev);
 
             });
 
@@ -622,7 +622,7 @@ namespace compute
                     });
 
                 });
-                events.push_back(ev);
+                // events.push_back(ev);
 
             });
         }
@@ -938,7 +938,7 @@ namespace compute
                     });
 
                 });
-                events.push_back(ev);
+                // events.push_back(ev);
 
             });
 
@@ -999,7 +999,7 @@ namespace compute
                                 });
 
                             });
-                events.push_back(ev);
+                // events.push_back(ev);
 
                         });
         }
@@ -1096,7 +1096,7 @@ namespace compute
                                     });
 
                                 });
-                events.push_back(ev);
+                // events.push_back(ev);
 
                     });
 
@@ -1134,7 +1134,7 @@ namespace compute
                                             end_offset = r.second;
                                         }
                                         auto ev = queue.copy(b->map()+start_offset, b->get_op_ptr()+start_offset, end_offset - start_offset);
-                                        events.push_back(ev);
+                                        // events.push_back(ev);
                                     }
                                 }
                 });
@@ -1183,7 +1183,7 @@ namespace compute
                                         }
                                         auto ev = queue.copy(b->get_op_ptr()+start_offset, b->map()+start_offset, end_offset - start_offset);
 
-                                        events.push_back(ev);   
+                                        // events.push_back(ev);   
 
                                     }
                                 }
@@ -1248,7 +1248,7 @@ namespace compute
                     });
 
                 });
-                events.push_back(ev);
+                // events.push_back(ev);
 
             });
 
@@ -1272,7 +1272,7 @@ namespace compute
                             c[idx] = x[idx] * y[idx];
                         });
                 });
-                                events.push_back(ev);
+                                // events.push_back(ev);
 
             });
         }
@@ -1343,7 +1343,7 @@ namespace compute
                                         s(sycl::range<1>(num_subgroups), cgh);
                     // auto wait_list = queue.get_wait_list();
                     // cgh.depends_on(wait_list);
-                    cgh.depends_on(barrier_events);
+                    // cgh.depends_on(barrier_events);
                     // maybe this can be rewritten in a simpler way?
                     cgh.parallel_for<class reduce_kernel>(
                         sycl::nd_range{sycl::range<1>{wgx*local_size_x}, sycl::range<1>{static_cast<size_t>(local_size_x)}}, 
@@ -1398,7 +1398,7 @@ namespace compute
 
 
                 });
-                                events.push_back(ev);
+                                // events.push_back(ev);
 
             });
         }
@@ -1450,7 +1450,7 @@ namespace compute
                     });
 
                 });
-                events.push_back(ev);
+                // events.push_back(ev);
 
             });
 
@@ -1481,9 +1481,9 @@ namespace compute
             //     barrierRequested = true;
             // });
 
-            sequence.push_back([this]() {
-                barrier_events = queue.get_wait_list();
-            });
+            // sequence.push_back([this]() {
+            //     // barrier_events = queue.get_wait_list();
+            // });
         }
 
         // void process_barrier(sycl::queue & queue, sycl::handler& cgh) {

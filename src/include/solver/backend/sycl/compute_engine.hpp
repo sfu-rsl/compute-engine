@@ -48,7 +48,7 @@ namespace compute
         // Create object for recording linear solver sequence
         std::shared_ptr<SYCLSolverSeq> create_op_sequence()
         {
-            return std::make_shared<SYCLSolverSeq>(this, queue);
+            return std::make_shared<SYCLSolverSeq>(this, sync_queue);
         }
 
     private:
