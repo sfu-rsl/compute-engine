@@ -3,6 +3,20 @@ project(spearhead VERSION 0.1.0)
 add_compile_definitions(SPDLOG_ACTIVE_LEVEL=5)
 add_compile_definitions(KOMPUTE_VK_API_MAJOR_VERSION=1 KOMPUTE_VK_API_MINOR_VERSION=2)
 
+execute_process(COMMAND "${CMAKE_CXX_COMPILER}" --opensycl-version RESULT_VARIABLE retvar OUTPUT_QUIET ERROR_QUIET)
+# message(result="${retvar}")
+# message("${CMAKE_CXX_COMPILER} --opensycl-version")
+if(retvar EQUAL "0")
+message("COMPILER IS SYCLCC")
+set(CE_SYCL ON)
+else()
+message("COMPILER IS NOT SYCLCC")
+set(CE_SYCL OFF)
+endif()
+
+# message(COMPILER="${CMAKE_CXX_COMPILER}")
+
+if(CE_SYCL)
 # find_package(IntelSYCL REQUIRED)
 remove_definitions(-EIGEN_USE_SYCL)
 # set(CMAKE_C_COMPILER "icx")
@@ -12,6 +26,8 @@ set(CMAKE_CXX_STANDARD 17) # for parallel for loops
 # set(CMAKE_CXX_EXTENSIONS OFF)
 # add_compile_options(-fsanitize=thread)
 # add_link_options(-fsanitize=thread)
+add_compile_definitions(CE_SYCL_BACKEND=1)
+endif()
 
 include(FetchContent)
 FetchContent_Declare(
@@ -55,7 +71,7 @@ find_package(Threads REQUIRED)
 
 # library
 # option(SPEARHEAD_SHARED_LIBS "Build as a shared library if true." 0)
-add_compile_definitions(CE_SYCL_BACKEND=1)
+# add_compile_definitions(CE_SYCL_BACKEND=1)
 
 add_library(compute SHARED
 src/backend/vulkan/compute_engine.cpp

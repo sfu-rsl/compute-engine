@@ -1,6 +1,11 @@
 
 #include <iostream>
+#ifdef CE_SYCL_BACKEND
 #include <solver/backend/sycl/backend.hpp>
+#else
+#include <solver/backend/vulkan/backend.hpp>
+#endif
+
 #include <solver/backend.hpp>
 #include <solver/sparse_block_matrix.hpp>
 #include <solver/utility.hpp>
