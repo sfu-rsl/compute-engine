@@ -1,7 +1,7 @@
 # Compute Engine
 
 This is a work-in-progress library which implements sparse matrix-matrix and matrix-vector operations to compute the Schur complement for visual and visual-inertial bundle adjustment using Vulkan compute shaders.
-Please see the [main project](https://github.com/sfu-rsl/gpu-block-solver) for more information.
+Please see the [main project](https://github.com/sfu-rsl/gpu-block-solver) for more information. There is also an alternate experimental backend based on OpenSYCL.
 
 ## Hardware Requirements
 
