@@ -1,10 +1,7 @@
 #pragma once
 
-#include "solver/gpu_buffer.hpp"
-#include <hipSYCL/sycl/libkernel/group_functions.hpp>
-#include <hipSYCL/sycl/libkernel/nd_item.hpp>
-#include <hipSYCL/sycl/libkernel/nd_range.hpp>
-#include <hipSYCL/sycl/libkernel/vec.hpp>
+#include <solver/gpu_buffer.hpp>
+#include <solver/matrix_types.hpp>
 #include <numeric>
 #include <algorithm>
 #include <vector>
@@ -416,7 +413,7 @@ namespace compute
                              bool add = true, bool transpose_right = false)
         {
 
-            sequence.push_back([=, this](){
+            sequence.push_back([=](){
 
                 const int32_t local_size_x = 256;
                 const auto szc = static_cast<uint32_t>(dim1.first * dim2.second);
@@ -796,87 +793,239 @@ namespace compute
             // });
         }
 
+    uint32_t countListItems(const uint32_t* left_idx, const uint32_t* right_idx, const uint32_t istart, const uint32_t iend, const uint32_t jstart, const uint32_t jend) {
+        uint32_t num_items = 0;
+        for (uint32_t i = istart, j = jstart; i < iend && j < jend;) {
+            const uint32_t l = left_idx[i];
+            const uint32_t r = right_idx[j];
+
+            if (l == r) {
+                num_items++;
+                i++;
+                j++;
+            }
+            else if (l < r) {
+                i++;
+            }
+            else {
+                j++;
+            }
+        }
+        return num_items;
+    }
+
         template <typename DataType>
         void estimate_list(
             uint32_t num_blocks,
-            SCBPtr<uint32_t> dest_idx,
-            SCBPtr<uint32_t> left_idx,
-            SCBPtr<uint32_t> left_offsets,
-            SCBPtr<uint32_t> left_ptr,
-            SCBPtr<uint32_t> right_idx,
-            SCBPtr<uint32_t> right_offsets,
-            SCBPtr<uint32_t> right_ptr,
-            SCBPtr<uint32_t> allocator_info)
+            SCBPtr<uint32_t> buf_dest_idx,
+            SCBPtr<uint32_t> buf_left_idx,
+            SCBPtr<uint32_t> buf_left_offsets,
+            SCBPtr<uint32_t> buf_left_ptr,
+            SCBPtr<uint32_t> buf_right_idx,
+            SCBPtr<uint32_t> buf_right_offsets,
+            SCBPtr<uint32_t> buf_right_ptr,
+            SCBPtr<uint32_t> buf_allocator_info)
         {
 
-            // // get or create algorithm for these specific tensors
-            // struct MultiplyInfo
-            // {
-            //     uint32_t n;
-            // };
+            sequence.push_back([=](){
 
-            // const int32_t local_size = static_cast<int32_t>(engine->get_subgroup_size());
-            // std::vector<int32_t> spec({local_size});
+                const int32_t local_size = static_cast<int32_t>(engine->get_subgroup_size());
+                const uint32_t wgx = (num_blocks + local_size - 1) / local_size;
 
-            // const std::vector<std::shared_ptr<kp::Tensor>> tensors{
-            //     dest_idx->get_tensor(),
-            //     left_idx->get_tensor(), left_offsets->get_tensor(), left_ptr->get_tensor(),
-            //     right_idx->get_tensor(), right_offsets->get_tensor(), right_ptr->get_tensor(),
-            //     allocator_info->get_tensor()};
+                auto dest_idx = reinterpret_cast<GPUBlockInfo*>(buf_dest_idx->get_op_ptr());
+                auto left_idx = buf_left_idx->get_op_ptr();
+                auto left_offsets = buf_left_offsets->get_op_ptr();
+                auto left_ptr = buf_left_ptr->get_op_ptr();
+                auto right_idx = buf_right_idx->get_op_ptr();
+                auto right_offsets = buf_right_offsets->get_op_ptr();
+                auto right_ptr = buf_right_ptr->get_op_ptr();
+                auto allocator_info = reinterpret_cast<ListAllocatorInfo*>(buf_allocator_info->get_op_ptr());
 
-            // kp::Manager &mgr = engine->get_manager_ref();
-            // auto algo = mgr.algorithm<int32_t, MultiplyInfo>(tensors,
-            //                                                  engine->spv_sbm_multiply_estimate_list, {}, spec, {MultiplyInfo{num_blocks}});
+                // const MultiplyInfo info{start, n};
+                auto ev = queue.submit([&](sycl::handler& cgh) {
+                                    
+                    cgh.parallel_for<class multiply_right_block_diagonal>(sycl::nd_range{sycl::range<1>{wgx*local_size}, sycl::range<1>{static_cast<size_t>(local_size)}}, 
+                    [=](sycl::nd_item<1> it){
+                            // Should not be necessary if properly dispatched
+                            const uint32_t ml_idx = it.get_global_linear_id();
+                            uint32_t num_items = 0;
+                            if (ml_idx < num_blocks) {
 
-            // const uint32_t wgx = (num_blocks + local_size - 1) / local_size;
-            // algo->setWorkgroup(kp::Workgroup{wgx, 1, 1});
+                                const uint32_t block_row = dest_idx[ml_idx].row;
+                                const uint32_t block_col = dest_idx[ml_idx].col;
 
-            // // Dispatch until all output matrix elements have been handled
-            // seq->record<kp::OpAlgoDispatch>(algo);
+
+                                uint32_t start = left_ptr[block_row];
+                                const uint32_t items = left_ptr[block_row+1]-start;
+
+
+                                const uint32_t end = start+items;
+                                const uint32_t jstart = right_ptr[block_col];
+                                const uint32_t jend = right_ptr[block_col+1];
+
+
+                                num_items = countListItems(left_idx, right_idx, start, end, jstart, jend);
+                            }
+                            sycl::group_barrier(it.get_sub_group());
+                            uint32_t add_lists = num_items > 0 ? 1 : 0;
+                            uint32_t num_lists = sycl::reduce_over_group(it.get_sub_group(), add_lists, sycl::plus<uint32_t>());
+                            uint32_t num_pairs = sycl::reduce_over_group(it.get_sub_group(), num_items, sycl::plus<uint32_t>());
+
+                            if (num_pairs > 0 && it.get_sub_group().get_local_linear_id() == 0) {
+                                sycl::atomic_ref<uint32_t, sycl::memory_order_relaxed, sycl::memory_scope::device, sycl::access::address_space::global_space> aref_lists(allocator_info[0].list_idx);
+                                aref_lists.fetch_add(num_lists);
+
+                                sycl::atomic_ref<uint32_t, sycl::memory_order_relaxed, sycl::memory_scope::device, sycl::access::address_space::global_space> aref_pairs(allocator_info[0].pair_idx);
+                                aref_pairs.fetch_add(num_pairs);
+
+                            }
+
+
+                    });
+
+                });
+                // events.push_back(ev);
+
+            });
+
+
         }
 
+
+        void writeListItems(sycl::uint2* mul_pairs, const uint32_t* left_idx, const uint32_t* left_offsets, const uint32_t* right_idx, const uint32_t* right_offsets, uint32_t pair_idx, 
+            const uint32_t istart, const uint32_t iend, const uint32_t jstart, const uint32_t jend) {
+
+            for (uint32_t i = istart, j = jstart; i < iend && j < jend;) {
+                const uint32_t l = left_idx[i];
+                const uint32_t r = right_idx[j];
+
+                if (l == r) {
+                    mul_pairs[pair_idx++] = sycl::uint2(left_offsets[i], right_offsets[j]);
+                    i++;
+                    j++;
+                }
+                else if (l < r) {
+                    i++;
+                }
+                else {
+                    j++;
+                }
+            }
+        }
         template <typename DataType>
         void build_list(
             uint32_t num_blocks,
-            SCBPtr<uint32_t> dest_idx,
-            SCBPtr<uint32_t> left_idx,
-            SCBPtr<uint32_t> left_offsets,
-            SCBPtr<uint32_t> left_ptr,
-            SCBPtr<uint32_t> right_idx,
-            SCBPtr<uint32_t> right_offsets,
-            SCBPtr<uint32_t> right_ptr,
-            SCBPtr<uint32_t> mul_lists,
-            SCBPtr<uint32_t> mul_pairs,
-            SCBPtr<uint32_t> allocator_info)
+            SCBPtr<uint32_t> buf_dest_idx,
+            SCBPtr<uint32_t> buf_left_idx,
+            SCBPtr<uint32_t> buf_left_offsets,
+            SCBPtr<uint32_t> buf_left_ptr,
+            SCBPtr<uint32_t> buf_right_idx,
+            SCBPtr<uint32_t> buf_right_offsets,
+            SCBPtr<uint32_t> buf_right_ptr,
+            SCBPtr<uint32_t> buf_mul_lists,
+            SCBPtr<uint32_t> buf_mul_pairs,
+            SCBPtr<uint32_t> buf_allocator_info)
         {
 
-            // // get or create algorithm for these specific tensors
+            sequence.push_back([=](){
 
-            // struct MultiplyInfo
-            // {
-            //     uint32_t num_blocks;
-            // };
+                const int32_t local_size = static_cast<int32_t>(engine->get_subgroup_size());
+                const uint32_t wgx = (num_blocks + local_size - 1) / local_size;
 
-            // const int32_t local_size = static_cast<int32_t>(engine->get_subgroup_size());
+                auto dest_idx = reinterpret_cast<GPUBlockInfo*>(buf_dest_idx->get_op_ptr());
+                auto left_idx = buf_left_idx->get_op_ptr();
+                auto left_offsets = buf_left_offsets->get_op_ptr();
+                auto left_ptr = buf_left_ptr->get_op_ptr();
+                auto right_idx = buf_right_idx->get_op_ptr();
+                auto right_offsets = buf_right_offsets->get_op_ptr();
+                auto right_ptr = buf_right_ptr->get_op_ptr();
+                auto allocator_info = reinterpret_cast<ListAllocatorInfo*>(buf_allocator_info->get_op_ptr());
+                auto mul_lists = reinterpret_cast<MulList*>(buf_mul_lists->get_op_ptr());
+                auto mul_pairs = reinterpret_cast<sycl::uint2*>(buf_mul_pairs->get_op_ptr());
 
-            // std::vector<int32_t> spec({local_size});
+                // const MultiplyInfo info{start, n};
+                auto ev = queue.submit([&](sycl::handler& cgh) {
+                                    
+                    cgh.parallel_for<class multiply_right_block_diagonal>(sycl::nd_range{sycl::range<1>{wgx*local_size}, sycl::range<1>{static_cast<size_t>(local_size)}}, 
+                    [=](sycl::nd_item<1> it){
+                            // Should not be necessary if properly dispatched
+                            const uint32_t ml_idx = it.get_global_linear_id();
+                            uint32_t num_items = 0;
+                            if (ml_idx < num_blocks) {
 
-            // const std::vector<std::shared_ptr<kp::Tensor>> tensors{
-            //     dest_idx->get_tensor(),
-            //     left_idx->get_tensor(), left_offsets->get_tensor(), left_ptr->get_tensor(),
-            //     right_idx->get_tensor(), right_offsets->get_tensor(), right_ptr->get_tensor(),
-            //     mul_lists->get_tensor(), mul_pairs->get_tensor(),
-            //     allocator_info->get_tensor()};
+                                const uint32_t block_row = dest_idx[ml_idx].row;
+                                const uint32_t block_col = dest_idx[ml_idx].col;
+                    
 
-            // kp::Manager &mgr = *(engine->get_manager());
-            // auto algo = mgr.algorithm<int32_t, MultiplyInfo>(tensors,
-            //                                                  engine->spv_sbm_multiply_build_list, {}, spec, {MultiplyInfo{num_blocks}});
+                                uint32_t start = left_ptr[block_row];
+                                const uint32_t items = left_ptr[block_row+1]-start;
 
-            // const uint32_t wgx = (num_blocks + local_size - 1) / local_size;
-            // algo->setWorkgroup(kp::Workgroup{wgx, 1, 1});
 
-            // // Dispatch until all output matrix elements have been handled
-            // seq->record<kp::OpAlgoDispatch>(algo);
+                                const uint32_t end = start+items;
+                                const uint32_t jstart = right_ptr[block_col];
+                                const uint32_t jend = right_ptr[block_col+1];
+
+
+                                num_items = countListItems(left_idx, right_idx, start, end, jstart, jend);
+                            }
+
+                            sycl::group_barrier(it.get_sub_group());
+                            uint32_t add_lists = num_items > 0 ? 1 : 0;
+                            uint32_t num_lists = sycl::reduce_over_group(it.get_sub_group(), add_lists, sycl::plus<uint32_t>());
+                            uint32_t num_pairs = sycl::reduce_over_group(it.get_sub_group(), num_items, sycl::plus<uint32_t>());
+
+                            uint32_t list_idx = 0;
+                            uint32_t pair_idx = 0;
+
+                            if (num_pairs > 0 && it.get_sub_group().get_local_linear_id() == 0) {
+                                sycl::atomic_ref<uint32_t, sycl::memory_order_relaxed, sycl::memory_scope::device, sycl::access::address_space::global_space> aref_lists(allocator_info[0].list_idx);
+                                list_idx = aref_lists.fetch_add(num_lists);
+
+                                sycl::atomic_ref<uint32_t, sycl::memory_order_relaxed, sycl::memory_scope::device, sycl::access::address_space::global_space> aref_pairs(allocator_info[0].pair_idx);
+                                pair_idx = aref_pairs.fetch_add(num_pairs);
+
+                            }
+
+                            // Share atomic result
+                            list_idx = sycl::group_broadcast(it.get_sub_group(), list_idx, 0);
+                            pair_idx = sycl::group_broadcast(it.get_sub_group(), pair_idx, 0);
+
+                            // Determine where each list writer should write
+                            uint32_t add_val = num_items > 0 ? 1 : 0;
+                            list_idx += sycl::exclusive_scan_over_group(it.get_sub_group(), add_val, sycl::plus<uint32_t>());
+                            pair_idx += sycl::exclusive_scan_over_group(it.get_sub_group(), num_items, sycl::plus<uint32_t>());
+
+                            if (num_items > 0) {
+
+                                // Write list header
+                                mul_lists[list_idx].start = pair_idx;
+                                mul_lists[list_idx].n = num_items;
+                                mul_lists[list_idx].dest = dest_idx[ml_idx].offset;
+
+
+                                // Write lists
+                                const uint32_t block_row = dest_idx[ml_idx].row;
+                                const uint32_t block_col = dest_idx[ml_idx].col;
+                    
+
+                                uint32_t start = left_ptr[block_row];
+                                const uint32_t items = left_ptr[block_row+1]-start;
+
+
+                                const uint32_t end = start+items;
+                                const uint32_t jstart = right_ptr[block_col];
+                                const uint32_t jend = right_ptr[block_col+1];
+                                writeListItems(mul_pairs, left_idx, left_offsets, right_idx, right_offsets, pair_idx, start, end, jstart, jend);
+                    
+                            }
+                        
+                    });
+
+                });
+                // events.push_back(ev);
+
+            });
+
         }
 
         template <typename DataType>
@@ -884,7 +1033,7 @@ namespace compute
                                            SCBPtr<DataType> left, SCBPtr<DataType> right, SCBPtr<DataType> dest, SCBPtr<uint32_t> pairs, bool add)
         {
 
-            sequence.push_back([=, this](){
+            sequence.push_back([=](){
 
                 const uint32_t local_size_x = static_cast<int32_t>(engine->get_subgroup_size());
                 const uint32_t szc = dim1.first * dim2.second;
@@ -1042,7 +1191,7 @@ namespace compute
                 // inv_algo->setWorkgroup(kp::Workgroup{num_workgroups, 1, 1});
                 // seq->record<kp::OpAlgoDispatch>(inv_algo);
 
-                    sequence.push_back([=, this](){
+                    sequence.push_back([=](){
                         const auto local_size_x = static_cast<uint32_t>(engine->get_subgroup_size() * 8);
                         const auto num_workgroups = static_cast<uint32_t>(ceil_div(n, local_size_x));
                         const MultiplyInfo info{static_cast<uint32_t>(start_idx), n};
@@ -1216,7 +1365,7 @@ namespace compute
                          SCBPtr<uint32_t> offsets, uint32_t num_mat, uint start)
         {
 
-            sequence.push_back([=, this](){
+            sequence.push_back([=](){
 
                 const uint32_t local_size_x = 256;
                 const uint32_t items = num_mat * dim.first * dim.second;

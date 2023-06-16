@@ -66,15 +66,7 @@ namespace compute
         }
     };
 
-    class GPUBlockInfo
-    {
-    public:
-        uint32_t row;
-        uint32_t col;
-        uint32_t offset;
 
-        GPUBlockInfo(const BlockPos &pos, const uint32_t &offset) : row(pos.first), col(pos.second), offset(offset) {}
-    };
 
     using BlockIndexOffset = std::pair<uint32_t, uint32_t>;
 

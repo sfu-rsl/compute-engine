@@ -98,4 +98,20 @@ namespace compute
         uint32_t start, n, block;
     };
 
+    class GPUBlockInfo
+    {
+    public:
+        uint32_t row;
+        uint32_t col;
+        uint32_t offset;
+
+        GPUBlockInfo(const BlockPos &pos, const uint32_t &offset) : row(pos.first), col(pos.second), offset(offset) {}
+    };
+
+    class ListAllocatorInfo {
+        public:
+        uint32_t list_idx;
+        uint32_t pair_idx;
+    };
+
 }
