@@ -1808,7 +1808,7 @@ TEST(SparseBlockMatrix, SchurTestDevice)
     // calc_Hschur->insert_host_sync_barrier();
     auto tb = std::chrono::high_resolution_clock::now();
 
-    fmt::print("add1 took: {} ms\n", 1000 * std::chrono::duration<double>(tb - ta).count());
+    // fmt::print("add1 took: {} ms\n", 1000 * std::chrono::duration<double>(tb - ta).count());
 
     // Sync
     auto sync_Hll_Hpl = create_sync_object();

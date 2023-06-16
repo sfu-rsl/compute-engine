@@ -1,9 +1,7 @@
 #pragma once
 #include "solver/gpu_buffer.hpp"
-#include <hipSYCL/sycl/usm.hpp>
 #include <solver/interfaces.h>
 #include <memory>
-#include <kompute/Tensor.hpp>
 #include <sycl/sycl.hpp>
 namespace compute
 {
