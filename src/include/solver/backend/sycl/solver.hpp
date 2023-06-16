@@ -627,170 +627,146 @@ namespace compute
         template <typename DataType>
         void tmultiply(
             BlockDim dim1, BlockDim dim2, uint32_t num_blocks,
-            SCBPtr<uint32_t> dest_idx,
-            SCBPtr<DataType> dest_data,
-            SCBPtr<uint32_t> left_idx,
-            SCBPtr<uint32_t> left_offsets,
-            SCBPtr<uint32_t> left_ptr,
-            SCBPtr<DataType> left_data,
-            SCBPtr<uint32_t> right_idx,
-            SCBPtr<uint32_t> right_offsets,
-            SCBPtr<uint32_t> right_ptr,
-            SCBPtr<DataType> right_data,
+            SCBPtr<uint32_t> buf_dest_idx,
+            SCBPtr<DataType> buf_dest_data,
+            SCBPtr<uint32_t> buf_left_idx,
+            SCBPtr<uint32_t> buf_left_offsets,
+            SCBPtr<uint32_t> buf_left_ptr,
+            SCBPtr<DataType> buf_left_data,
+            SCBPtr<uint32_t> buf_right_idx,
+            SCBPtr<uint32_t> buf_right_offsets,
+            SCBPtr<uint32_t> buf_right_ptr,
+            SCBPtr<DataType> buf_right_data,
             bool add = true,
             bool transpose_right = false)
         {
 
-            // // get or create algorithm for these specific tensors
+            sequence.push_back([=](){
 
-            // uint32_t szc = static_cast<uint32_t>(dim1.first * dim2.second);
-            // const auto subgroup_size = engine->get_subgroup_size();
+                // get or create algorithm for these specific tensors
 
-            // struct MultiplyInfo
-            // {
-            //     uint32_t start;
-            //     uint32_t n;
-            // };
+                uint32_t szc = static_cast<uint32_t>(dim1.first * dim2.second);
+                const auto subgroup_size = engine->get_subgroup_size();
 
-            // // assume some max workgroup / matrix size
-            // constexpr uint32_t max_size = 256;
+                struct MultiplyInfo
+                {
+                    uint32_t start;
+                    uint32_t n;
+                };
 
-            // if (szc > max_size)
-            // {
-            //     throw std::runtime_error("Output matrix size is greater than max workgroup size!");
-            // }
-            // // num subgroups per output matrix
-            // int32_t sg_per_mat = static_cast<int32_t>(ceil_div(szc, subgroup_size));
-            // int32_t mat_per_wg = static_cast<int32_t>(max_size / (subgroup_size * sg_per_mat)); // workload division factor
+                // assume some max workgroup / matrix size
+                constexpr uint32_t max_size = 256;
 
-            // int32_t num_subgroups = mat_per_wg * sg_per_mat;
-            // int32_t local_size_x = num_subgroups * subgroup_size;
-            // std::vector<int32_t> spec({dim1.first, dim1.second, dim2.first, dim2.second, local_size_x, add ? 1 : 0, transpose_right ? 1 : 0, sg_per_mat, mat_per_wg});
-            // const std::vector<std::shared_ptr<kp::Tensor>> tensors{
-            //     dest_idx->get_tensor(),
-            //     dest_data->get_tensor(),
-            //     left_idx->get_tensor(),
-            //     left_offsets->get_tensor(),
-            //     left_ptr->get_tensor(),
-            //     left_data->get_tensor(),
-            //     right_idx->get_tensor(),
-            //     right_offsets->get_tensor(),
-            //     right_ptr->get_tensor(),
-            //     right_data->get_tensor(),
-            // };
+                if (szc > max_size)
+                {
+                    throw std::runtime_error("Output matrix size is greater than max workgroup size!");
+                }
+                // num subgroups per output matrix
+                const int32_t sg_per_mat = static_cast<int32_t>(ceil_div(szc, subgroup_size));
+                const int32_t mat_per_wg = static_cast<int32_t>(max_size / (subgroup_size * sg_per_mat)); // workload division factor
 
-            // kp::Manager &mgr = *(engine->get_manager());
-            // auto algo = mgr.algorithm<int32_t, MultiplyInfo>(tensors,
-            //                                                  engine->spv_sbm_multiply_dynamic, {}, spec, {MultiplyInfo{0, num_blocks}});
+                int32_t num_subgroups = mat_per_wg * sg_per_mat;
+                int32_t local_size_x = num_subgroups * subgroup_size;
+                const uint32_t wgx = num_blocks;
 
-            // // algo->setWorkgroup(kp::Workgroup{n, 1, 1});
-            // algo->setWorkgroup(kp::Workgroup{num_blocks, 1, 1});
+                auto dest_idx = reinterpret_cast<GPUBlockInfo*>(buf_dest_idx->get_op_ptr());
+                auto left_idx = buf_left_idx->get_op_ptr();
+                auto left_offsets = buf_left_offsets->get_op_ptr();
+                auto left_ptr = buf_left_ptr->get_op_ptr();
+                auto right_idx = buf_right_idx->get_op_ptr();
+                auto right_offsets = buf_right_offsets->get_op_ptr();
+                auto right_ptr = buf_right_ptr->get_op_ptr();
 
-            // // Dispatch until all output matrix elements have been handled
-            // // MultiplyInfo push_constant{start, n};
-            // // algo->setPushConstants(&push_constant, 1, sizeof(push_constant));
-            // seq->record<kp::OpAlgoDispatch>(algo);
-            // // std::cout << "Algo dispatched!\n";
-            // // std::cout << "num_blocks: " << num_blocks << std::endl;
+                auto left_data = buf_left_data->get_op_ptr();
+                auto right_data = buf_right_data->get_op_ptr();
+                auto dest_data = buf_dest_data->get_op_ptr();
 
-            // sequence.push_back([=, this](){
-
-
-            //     uint32_t szc = static_cast<uint32_t>(dim1.first * dim2.second);
-            //     const auto subgroup_size = engine->get_subgroup_size();
-
-            //     struct MultiplyInfo
-            //     {
-            //         uint32_t start;
-            //         uint32_t n;
-            //     };
-
-            //     // assume some max workgroup / matrix size
-            //     constexpr uint32_t max_size = 256;
-
-            //     if (szc > max_size)
-            //     {
-            //         throw std::runtime_error("Output matrix size is greater than max workgroup size!");
-            //     }
-                
-            //     // num subgroups per output matrix
-            //     int32_t sg_per_mat = static_cast<int32_t>(ceil_div(szc, subgroup_size));
-            //     int32_t mat_per_wg = static_cast<int32_t>(max_size / (subgroup_size * sg_per_mat)); // workload division factor
-
-            //     int32_t num_subgroups = mat_per_wg * sg_per_mat;
-            //     int32_t local_size_x = num_subgroups * subgroup_size;
-
-            //     auto & queue= engine->get_queue();
-
-
-            //     MulList * p_lists = reinterpret_cast<MulList*>(lists->get_op_ptr());
-            //     sycl::uint2 * p_pairs = reinterpret_cast<sycl::uint2*>(pairs->get_op_ptr());
-            //     DataType* a = left->get_op_ptr();
-            //     DataType* b = right->get_op_ptr();
-            //     DataType* c = dest->get_op_ptr();
-
-
-
-
-            //     const auto rows_a = dim1.first;
-            //     const auto cols_a = dim1.second;
-            //     const auto rows_b = dim2.first;
-            //     const auto cols_b = dim2.second;
-            //     const auto num_lists = n;
-            //     const auto start_idx = start;
-
-
-            //     const MultiplyInfo ml_info{start, n};
-            //     queue.submit([&](sycl::handler& cgh) {
+                const uint32_t rows_a = dim1.first;
+                const uint32_t cols_a = dim1.second;
+                const uint32_t rows_b = dim2.first;
+                const uint32_t cols_b = dim2.second;
+                std::cout << "num_blocks: " << num_blocks << "\n";
+                // const MultiplyInfo info{start, n};
+                auto ev = queue.submit([&](sycl::handler& cgh) {
                                     
-            //         cgh.parallel_for<class multiply_packed>(sycl::nd_range{sycl::range<1>{wgx*local_size_x}, sycl::range<1>{static_cast<size_t>(local_size_x)}}, 
-            //         [=](sycl::nd_item<1> it){
+                    sycl::accessor <DataType, 2, sycl::access::mode::read_write, sycl::access::target::local>
+                                        values(sycl::range<2>(mat_per_wg, szc), cgh);
 
-            //             const auto ml_idx = it.get_global_linear_id() / szc;
-            //             const auto elem = it.get_global_linear_id() % szc;
+                    cgh.parallel_for<class multiply_dynamic>(sycl::nd_range{sycl::range<1>{wgx*local_size_x}, sycl::range<1>{static_cast<size_t>(local_size_x)}}, 
+                    [=](sycl::nd_item<1> it){
+                            const uint32_t ml_idx = it.get_group_linear_id();
+                            auto sg = it.get_sub_group();
+                            const uint32_t mat_id = sg.get_group_linear_id()/sg_per_mat;
+                            const uint32_t elem = sg.get_local_linear_id() + (sg.get_group_linear_id() % sg_per_mat)*sg.get_local_linear_range(); //gl_SubgroupSize;
+                            const uint32_t c_row = elem % rows_a;
+                            const uint32_t c_col = elem / rows_a;
 
-            //             if (!(ml_idx < num_lists && elem < szc)) {
-            //                 return;
-            //             }
+                            if (ml_idx < num_blocks && elem < szc) {
 
-            //             const uint32_t list_idx = start_idx + ml_idx;
-            //             const uint32_t start = p_lists[list_idx].start;
-            //             const uint32_t items = p_lists[list_idx].n;
-            //             const uint32_t off_c = p_lists[list_idx].dest;
+                                const uint32_t block_row = dest_idx[ml_idx].row;
+                                const uint32_t block_col = dest_idx[ml_idx].col;
 
-            //             const uint32_t c_row = elem % rows_a;
-            //             const uint32_t c_col = elem / rows_a;
 
-            //             double value = 0.0;
-            //             const uint32_t end = start + items;
-            //             for (uint32_t i = start; i < end; i++) {
-            //                 const sycl::uint2 pair = p_pairs[i];
-            //                 // value += mulAB(pair.x(), pair.y(), c_row, c_col);
-            //                 auto off_a = pair.x();
-            //                 auto off_b = pair.y();
+                                uint32_t start = left_ptr[block_row];
+                                uint32_t items = left_ptr[block_row+1]-start;
+                                items = distribute(start, items, sg.get_group_linear_range() / sg_per_mat, mat_id);
 
-            //                 if (transpose_right) {
-            //                     for (int v = 0; v < cols_a; v++) {
-            //                         value += a[c_row+v*rows_a + off_a]*b[v*cols_b+c_col + off_b];
-            //                     }
-            //                 }
-            //                 else {
-            //                     for (int v = 0; v < cols_a; v++) {
-            //                         value += a[c_row+v*rows_a + off_a]*b[v+c_col*rows_b + off_b];
-            //                     }
-            //                 }
-            //             }
+                                const uint32_t end = start+items;
+                                const uint32_t jstart = right_ptr[block_col];
+                                const uint32_t jend = right_ptr[block_col+1];
+                                uint32_t j = jstart;
 
-            //             if (!add) {
-            //                 value = -value;
-            //             }
-            //             c[c_row + c_col*rows_a + off_c] += value;
+                                double value = 0.0;
 
-            //         });
+                                for (uint32_t i = start; i < end && j < jend;) {
+                                    const uint32_t l = left_idx[i];
+                                    const uint32_t r = right_idx[j];
 
-            //     });
+                                    if (l == r) {
+                                        // multiply
+                                        const uint32_t off_a = left_offsets[i];
+                                        const uint32_t off_b = right_offsets[j];
+                                        
+                                        for (uint32_t v = 0; v < cols_a; v++) {
+                                            if (transpose_right) {
+                                                value += left_data[c_row+v*rows_a + off_a]*right_data[v*cols_b+c_col + off_b];
+                                            }
+                                            else {
+                                                value += left_data[c_row+v*rows_a + off_a]*right_data[v+c_col*rows_b + off_b];
+                                            }
+                                        }
+                                        i++;
+                                        j++;
+                                    }
+                                    else if (l < r) {
+                                        i++;
+                                    }
+                                    else {
+                                        j++;
+                                    }
+                                }
 
-            // });
+
+                                values[mat_id][elem] = value;
+                            }
+                            sycl::group_barrier(it.get_group());
+
+                            if (ml_idx < num_blocks && elem < szc && mat_id == 0) {
+                                double sum = 0.0;
+                                for (uint32_t i = 0; i < mat_per_wg; i++) {
+                                    sum += values[i][elem];
+                                }
+                                const uint32_t off_c = dest_idx[ml_idx].offset;
+                                dest_data[c_row + c_col*rows_a + off_c] += add ? sum : -sum;  
+                            }
+                    });
+
+                });
+                // events.push_back(ev);
+
+            });
+
+
         }
 
     uint32_t countListItems(const uint32_t* left_idx, const uint32_t* right_idx, const uint32_t istart, const uint32_t iend, const uint32_t jstart, const uint32_t jend) {
