@@ -13,6 +13,10 @@
 #include "compute_buffer.hpp"
 #include "compute_engine.hpp"
 
+#ifndef CE_VULKAN
+#define CE_VULKAN
+#endif
+
 namespace compute
 {
     // Forward Declarations
