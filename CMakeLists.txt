@@ -3,10 +3,12 @@ project(spearhead VERSION 0.1.0)
 add_compile_definitions(SPDLOG_ACTIVE_LEVEL=5)
 add_compile_definitions(KOMPUTE_VK_API_MAJOR_VERSION=1 KOMPUTE_VK_API_MINOR_VERSION=2)
 set(CMAKE_CXX_STANDARD 14) # for parallel for loops
+
 # set(CMAKE_CXX_STANDARD_REQUIRED ON)
 # set(CMAKE_CXX_EXTENSIONS OFF)
 # add_compile_options(-fsanitize=thread)
 # add_link_options(-fsanitize=thread)
+include(CheckLanguage)
 
 include(FetchContent)
 FetchContent_Declare(
@@ -37,7 +39,6 @@ set(KOMPUTE_OPT_DISABLE_VK_DEBUG_LAYERS ON)
 # General
 set(BUILD_SHARED_LIBS ON CACHE BOOL "Build shared libraries." FORCE)
 
-
 # It is necessary to pass the DEBUG or RELEASE flag accordingly to Kompute
 set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -DDEBUG=1 ${KOMPUTE_EXTRA_CXX_FLAGS} -Wall -Wextra")
 set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -DRELEASE=1 ${KOMPUTE_EXTRA_CXX_FLAGS}")
@@ -50,27 +51,41 @@ find_package(Threads REQUIRED)
 # library
 # option(SPEARHEAD_SHARED_LIBS "Build as a shared library if true." 0)
 add_library(compute SHARED
-src/backend/vulkan/compute_engine.cpp
-src/CustomOp.cpp
+  src/backend/vulkan/compute_engine.cpp
+  src/CustomOp.cpp
 )
 
 # compile shaders
 find_package(Python3 REQUIRED COMPONENTS Interpreter)
 
 file(GLOB_RECURSE SHADERS
-"shaders/*.comp"
+  "shaders/*.comp"
 )
 
-file(COPY ${CMAKE_CURRENT_SOURCE_DIR}/data/ 
-DESTINATION ${CMAKE_CURRENT_BINARY_DIR}/data/)
+file(COPY ${CMAKE_CURRENT_SOURCE_DIR}/data/
+  DESTINATION ${CMAKE_CURRENT_BINARY_DIR}/data/)
+
+file(COPY ${CMAKE_CURRENT_SOURCE_DIR}/data-pgo/
+  DESTINATION ${CMAKE_CURRENT_BINARY_DIR}/data-pgo/)
 
 add_custom_target(compile_shaders
-COMMAND mkdir -p ${CMAKE_CURRENT_SOURCE_DIR}/src/include/solver/shaders
-COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/external/kompute/scripts/convert_shaders_custom.py -p shaders -s glslangValidator -c ${CMAKE_CURRENT_SOURCE_DIR}/src/include/solver/shaders/
-DEPENDS ${SHADERS}
-WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+  COMMAND mkdir -p ${CMAKE_CURRENT_SOURCE_DIR}/src/include/solver/shaders
+  COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/external/kompute/scripts/convert_shaders_custom.py -p shaders -s glslangValidator -c ${CMAKE_CURRENT_SOURCE_DIR}/src/include/solver/shaders/
+  DEPENDS ${SHADERS}
+  WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
 )
 
+check_language(CUDA)
+
+if(CMAKE_CUDA_COMPILER)
+  message("CUDA IS AVAILABLE")
+
+  find_package(CUDAToolkit REQUIRED)
+  target_link_libraries(compute CUDA::cusparse CUDA::cusolver CUDA::cudart)
+  add_compile_definitions(CUDA_ENABLED)
+else()
+  message("CUDA IS NOT AVAILABLE")
+endif()
 
 add_dependencies(compute
   compile_shaders
@@ -82,26 +97,21 @@ target_link_libraries(compute
 )
 
 target_include_directories(compute PUBLIC
-    ${EIGEN3_INCLUDE_DIR}
-    PUBLIC external/kompute/src/include
-    PUBLIC src/include
+  ${EIGEN3_INCLUDE_DIR}
+  PUBLIC external/kompute/src/include
+  PUBLIC src/include
 )
-
 
 # Benchmarks
 add_executable(sbm_bench
   src/sbm_bench.cpp
 )
 
-
-
 target_link_libraries(sbm_bench
-    kompute::kompute
-    benchmark::benchmark
-    compute
+  kompute::kompute
+  benchmark::benchmark
+  compute
 )
-
-
 
 enable_testing()
 
