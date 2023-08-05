@@ -24,16 +24,18 @@ class LLTSolverCUDA : public LinearSolver<DataType> {
   DataType* b_dev;
   DataType* x_dev;
   int reorder;
+  DataType tol;
 
  public:
-  LLTSolverCUDA(int ordering_mode = 0)
+  LLTSolverCUDA(int ordering_mode = 0, DataType tol = 1e-7)
       : first_iter(true),
         data(nullptr),
         outerIndices(nullptr),
         innerIndices(nullptr),
         b_dev(nullptr),
         x_dev(nullptr),
-        reorder(ordering_mode) {
+        reorder(ordering_mode),
+        tol(tol) {
     static_assert(std::is_same<double, DataType>(),
                   "Only doubles supported by solver!");
     cusolverSpCreate(&handle);
@@ -98,7 +100,7 @@ class LLTSolverCUDA : public LinearSolver<DataType> {
 
     auto status = cusolverSpDcsrlsvchol(
         handle, matrix.cols(), matrix.nonZeros(), desc, data, outerIndices,
-        innerIndices, b_dev, 1e-12, reorder, x_dev, &singularity);
+        innerIndices, b_dev, tol, reorder, x_dev, &singularity);
 
     cudaMemcpy(x->map(), x_dev, x->mem_size(),
                cudaMemcpyKind::cudaMemcpyDefault);
