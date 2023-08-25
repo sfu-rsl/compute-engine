@@ -75,8 +75,6 @@ class LLTSolverCUDA : public LinearSolver<DataType> {
       cudaMalloc((void**)&b_dev, b->mem_size());
       cudaMalloc((void**)&x_dev, x->mem_size());
 
-      cudaMemcpy(data, matrix.valuePtr(), sizeof(DataType) * nnz,
-                 cudaMemcpyKind::cudaMemcpyDefault);
       cudaMemcpy(outerIndices, matrix.outerIndexPtr(),
                  sizeof(int) * (matrix.outerSize() + 1),
                  cudaMemcpyKind::cudaMemcpyDefault);
@@ -85,18 +83,22 @@ class LLTSolverCUDA : public LinearSolver<DataType> {
       first_iter = false;
     } else {
       A->fill_csc_values2(matrix.valuePtr(), true);
-      cudaMemcpy(data, matrix.valuePtr(), sizeof(DataType) * matrix.nonZeros(),
-                 cudaMemcpyKind::cudaMemcpyDefault);
     }
-
+    cudaMemcpy(data, matrix.valuePtr(), sizeof(DataType) * matrix.nonZeros(),
+                 cudaMemcpyKind::cudaMemcpyDefault);
     cudaMemcpy(b_dev, b->map(), b->mem_size(),
                cudaMemcpyKind::cudaMemcpyDefault);
-    cudaMemcpy(x_dev, x->map(), x->mem_size(),
-               cudaMemcpyKind::cudaMemcpyDefault);
+
+    cudaMemset(x_dev, 0, x->mem_size());
 
     // solve
     auto t0 = std::chrono::high_resolution_clock::now();
     int singularity = 0;
+
+    if (!data || !b_dev || !x_dev || !outerIndices || !innerIndices) {
+      std::cerr << "memory allocation failed!" << std::endl;
+      return false;
+    }
 
     auto status = cusolverSpDcsrlsvchol(
         handle, matrix.cols(), matrix.nonZeros(), desc, data, outerIndices,
@@ -191,8 +193,6 @@ class LLTSolverCUDALowLevel : public LinearSolver<DataType> {
       cudaMalloc((void**)&b_dev, b->mem_size());
       cudaMalloc((void**)&x_dev, x->mem_size());
 
-      cudaMemcpy(data, matrix.valuePtr(), sizeof(DataType) * nnz,
-                 cudaMemcpyKind::cudaMemcpyDefault);
       cudaMemcpy(outerIndices, matrix.outerIndexPtr(),
                  sizeof(int) * (matrix.outerSize() + 1),
                  cudaMemcpyKind::cudaMemcpyDefault);
@@ -213,14 +213,12 @@ class LLTSolverCUDALowLevel : public LinearSolver<DataType> {
       first_iter = false;
     } else {
       A->fill_csc_values2(matrix.valuePtr(), true);
-      cudaMemcpy(data, matrix.valuePtr(), sizeof(DataType) * matrix.nonZeros(),
-                 cudaMemcpyKind::cudaMemcpyDefault);
     }
-
+    cudaMemcpy(data, matrix.valuePtr(), sizeof(DataType) * matrix.nonZeros(),
+                 cudaMemcpyKind::cudaMemcpyDefault);
     cudaMemcpy(b_dev, b->map(), b->mem_size(),
                cudaMemcpyKind::cudaMemcpyDefault);
-    cudaMemcpy(x_dev, x->map(), x->mem_size(),
-               cudaMemcpyKind::cudaMemcpyDefault);
+    cudaMemset(x_dev, 0, x->mem_size());
 
     auto t0 = std::chrono::high_resolution_clock::now();
 
