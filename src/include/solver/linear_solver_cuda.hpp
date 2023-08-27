@@ -27,7 +27,7 @@ class LLTSolverCUDA : public LinearSolver<DataType> {
   DataType tol;
 
  public:
-  LLTSolverCUDA(int ordering_mode = 0, DataType tol = 1e-7)
+  LLTSolverCUDA(int ordering_mode = 0, DataType tol = 0)
       : first_iter(true),
         data(nullptr),
         outerIndices(nullptr),
@@ -104,8 +104,7 @@ class LLTSolverCUDA : public LinearSolver<DataType> {
         handle, matrix.cols(), matrix.nonZeros(), desc, data, outerIndices,
         innerIndices, b_dev, tol, reorder, x_dev, &singularity);
 
-    cudaMemcpy(x->map(), x_dev, x->mem_size(),
-               cudaMemcpyKind::cudaMemcpyDefault);
+
 
     auto t1 = std::chrono::high_resolution_clock::now();
     // fmt::print("cuSolver Took: {}\n", std::chrono::duration<double>(t1 -
@@ -115,6 +114,18 @@ class LLTSolverCUDA : public LinearSolver<DataType> {
       std::cerr << "Error: LLTSolverCUDA returned status " << status << "!\n";
       return false;
     }
+    if (singularity != -1) {
+      if (tol == 0.0) {
+        std::cerr << "Error: Matrix is not positive definite" << std::endl;
+      }
+      else {
+        std::cerr << "Error: Matrix is near singular under tolerance" << std::endl;
+      }
+      return false;
+    }
+
+    cudaMemcpy(x->map(), x_dev, x->mem_size(),
+               cudaMemcpyKind::cudaMemcpyDefault);
 
     return true;
   }
