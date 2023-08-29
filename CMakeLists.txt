@@ -1,8 +1,8 @@
 cmake_minimum_required(VERSION 3.4.1)
-project(spearhead VERSION 0.1.0)
+project(compute_engine VERSION 0.1.0)
 add_compile_definitions(SPDLOG_ACTIVE_LEVEL=5)
 add_compile_definitions(KOMPUTE_VK_API_MAJOR_VERSION=1 KOMPUTE_VK_API_MINOR_VERSION=2)
-set(CMAKE_CXX_STANDARD 14) # for parallel for loops
+set(CMAKE_CXX_STANDARD 14)
 
 # set(CMAKE_CXX_STANDARD_REQUIRED ON)
 # set(CMAKE_CXX_EXTENSIONS OFF)
@@ -49,7 +49,6 @@ find_package(Eigen3 3.1.0 REQUIRED)
 find_package(Threads REQUIRED)
 
 # library
-# option(SPEARHEAD_SHARED_LIBS "Build as a shared library if true." 0)
 add_library(compute SHARED
   src/backend/vulkan/compute_engine.cpp
   src/CustomOp.cpp
