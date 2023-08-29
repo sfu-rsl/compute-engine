@@ -3121,7 +3121,8 @@ TEST(PGO, LLTCUDA) {
   auto ta = std::chrono::high_resolution_clock::now();
   ASSERT_TRUE(solver->solve(hschur, xp, bschur_expected));
   auto tb = std::chrono::high_resolution_clock::now();
-  // fmt::print("PGO-LDLT Took: {}\n", std::chrono::duration<double>(tb - ta).count());
+  // fmt::print("PGO-LDLT Took: {}\n", std::chrono::duration<double>(tb -
+  // ta).count());
 
   // Read output
   auto sync_x = create_sync_object();
@@ -3151,7 +3152,6 @@ TEST(PGO, LLTCUDA) {
 
   delete solver;
 }
-
 
 #endif
 

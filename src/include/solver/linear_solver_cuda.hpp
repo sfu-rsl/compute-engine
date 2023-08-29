@@ -14,6 +14,7 @@ template <typename DataType>
 class LLTSolverCUDA : public LinearSolver<DataType> {
  private:
   bool first_iter;
+  bool block_ordering;
   cusolverSpHandle_t handle;
   cusparseHandle_t sphandle;
   Eigen::SparseMatrix<DataType, Eigen::ColMajor> matrix;
@@ -80,8 +81,9 @@ class LLTSolverCUDA : public LinearSolver<DataType> {
   }
 
  public:
-  LLTSolverCUDA()
+  LLTSolverCUDA(bool use_block_ordering = false)
       : first_iter(true),
+        block_ordering(use_block_ordering),
         data(nullptr),
         outerIndices(nullptr),
         innerIndices(nullptr),
@@ -138,8 +140,13 @@ class LLTSolverCUDA : public LinearSolver<DataType> {
       full_matrix = matrix.template selfadjointView<Eigen::Upper>();
       full_matrix.makeCompressed();
       // Get permutation matrix and copy it, and its inverse, into the device
-      auto P = A->get_ordered_permutation(true);
-
+      Eigen::PermutationMatrix<Eigen::Dynamic, Eigen::Dynamic, int32_t> P;
+      if (block_ordering) {
+        P = A->get_ordered_permutation(true);
+      } else {
+        Eigen::AMDOrdering<int32_t> amd_ordering;
+        amd_ordering(matrix, P);
+      }
       // copy into device
       int n = matrix.cols();
       cudaMalloc((void**)&p_dev, sizeof(int) * n);
