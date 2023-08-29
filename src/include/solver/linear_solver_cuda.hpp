@@ -3,6 +3,7 @@
 #include <cuda_runtime_api.h>
 #include <cusolverSp.h>
 #include <cusolverSp_LOWLEVEL_PREVIEW.h>
+#include <cusparse.h>
 
 #include <solver/linear_solver.hpp>
 #include <type_traits>
@@ -14,130 +15,7 @@ class LLTSolverCUDA : public LinearSolver<DataType> {
  private:
   bool first_iter;
   cusolverSpHandle_t handle;
-  Eigen::SparseMatrix<DataType, Eigen::ColMajor> matrix;
-  cusparseMatDescr_t desc;
-
-  // matrix buffers
-  DataType* data;
-  int* outerIndices;
-  int* innerIndices;
-  DataType* b_dev;
-  DataType* x_dev;
-  int reorder;
-  DataType tol;
-
- public:
-  LLTSolverCUDA(int ordering_mode = 0, DataType tol = 0)
-      : first_iter(true),
-        data(nullptr),
-        outerIndices(nullptr),
-        innerIndices(nullptr),
-        b_dev(nullptr),
-        x_dev(nullptr),
-        reorder(ordering_mode),
-        tol(tol) {
-    static_assert(std::is_same<double, DataType>(),
-                  "Only doubles supported by solver!");
-    cusolverSpCreate(&handle);
-
-    cusparseCreateMatDescr(&desc);
-    cusparseSetMatType(desc, CUSPARSE_MATRIX_TYPE_GENERAL);
-    cusparseSetMatFillMode(
-        desc, CUSPARSE_FILL_MODE_LOWER);  // we generate UT CCS matrices, which
-                                          // should be CSR lower when transposed
-    cusparseSetMatDiagType(desc, CUSPARSE_DIAG_TYPE_NON_UNIT);
-    cusparseSetMatIndexBase(desc, CUSPARSE_INDEX_BASE_ZERO);
-  }
-
-  ~LLTSolverCUDA() {
-    if (data) {
-      cudaFree(data);
-      cudaFree(outerIndices);
-      cudaFree(innerIndices);
-      cudaFree(b_dev);
-      cudaFree(x_dev);
-    }
-    cusparseDestroyMatDescr(desc);
-    cusolverSpDestroy(handle);
-  }
-
-  bool solve(MatPtr<DataType> A, BufferPtr<DataType> x,
-             BufferPtr<DataType> b) override {
-    if (first_iter) {
-      A->fill_csc2(matrix, true);
-
-      int nnz = matrix.nonZeros();
-
-      cudaMalloc((void**)&data, sizeof(DataType) * nnz);
-      cudaMalloc((void**)&outerIndices, sizeof(int) * (matrix.outerSize() + 1));
-      cudaMalloc((void**)&innerIndices, sizeof(int) * nnz);
-
-      cudaMalloc((void**)&b_dev, b->mem_size());
-      cudaMalloc((void**)&x_dev, x->mem_size());
-
-      cudaMemcpy(outerIndices, matrix.outerIndexPtr(),
-                 sizeof(int) * (matrix.outerSize() + 1),
-                 cudaMemcpyKind::cudaMemcpyDefault);
-      cudaMemcpy(innerIndices, matrix.innerIndexPtr(), sizeof(int) * nnz,
-                 cudaMemcpyKind::cudaMemcpyDefault);
-      first_iter = false;
-    } else {
-      A->fill_csc_values2(matrix.valuePtr(), true);
-    }
-    cudaMemcpy(data, matrix.valuePtr(), sizeof(DataType) * matrix.nonZeros(),
-                 cudaMemcpyKind::cudaMemcpyDefault);
-    cudaMemcpy(b_dev, b->map(), b->mem_size(),
-               cudaMemcpyKind::cudaMemcpyDefault);
-
-    cudaMemset(x_dev, 0, x->mem_size());
-
-    // solve
-    auto t0 = std::chrono::high_resolution_clock::now();
-    int singularity = 0;
-
-    if (!data || !b_dev || !x_dev || !outerIndices || !innerIndices) {
-      std::cerr << "memory allocation failed!" << std::endl;
-      return false;
-    }
-
-    auto status = cusolverSpDcsrlsvchol(
-        handle, matrix.cols(), matrix.nonZeros(), desc, data, outerIndices,
-        innerIndices, b_dev, tol, reorder, x_dev, &singularity);
-
-
-
-    auto t1 = std::chrono::high_resolution_clock::now();
-    // fmt::print("cuSolver Took: {}\n", std::chrono::duration<double>(t1 -
-    // t0).count());
-
-    if (status != cusolverStatus_t::CUSOLVER_STATUS_SUCCESS) {
-      std::cerr << "Error: LLTSolverCUDA returned status " << status << "!\n";
-      return false;
-    }
-    if (singularity != -1) {
-      if (tol == 0.0) {
-        std::cerr << "Error: Matrix is not positive definite" << std::endl;
-      }
-      else {
-        std::cerr << "Error: Matrix is near singular under tolerance" << std::endl;
-      }
-      return false;
-    }
-
-    cudaMemcpy(x->map(), x_dev, x->mem_size(),
-               cudaMemcpyKind::cudaMemcpyDefault);
-
-    return true;
-  }
-
-  bool result_gpu() override { return false; }
-};
-
-template <typename DataType>
-class LLTSolverCUDALowLevel : public LinearSolver<DataType> {
- private:
-  bool first_iter;
-  cusolverSpHandle_t handle;
+  cusparseHandle_t sphandle;
   Eigen::SparseMatrix<DataType, Eigen::ColMajor> matrix;
   cusparseMatDescr_t desc;
   csrcholInfo_t chol_info;
@@ -148,45 +26,107 @@ class LLTSolverCUDALowLevel : public LinearSolver<DataType> {
   int* innerIndices;
   DataType* b_dev;
   DataType* x_dev;
+  int* p_dev;
+  int* pt_dev;
+  int* vp_dev;
+  DataType* data_perm;
   int reorder;
   size_t internal_bytes;
   size_t workspace_bytes;
   void* workspace_buffer;
 
+  std::vector<int> pt;
+  Eigen::SparseMatrix<DataType, Eigen::RowMajor> full_matrix;
+  using decomp_method =
+      Eigen::SimplicialLLT<Eigen::SparseMatrix<DataType, Eigen::ColMajor>,
+                           Eigen::Upper>;
+  Decomp<decomp_method> decomp;
+
+  void permute_matrix(
+      Eigen::PermutationMatrix<Eigen::Dynamic, Eigen::Dynamic, int32_t>& P) {
+    int n = matrix.cols();
+
+    size_t buffer_size = 0;
+    cusolverSpXcsrperm_bufferSizeHost(
+        handle, n, n, full_matrix.nonZeros(), desc, full_matrix.outerIndexPtr(),
+        full_matrix.innerIndexPtr(), P.indices().data(), P.indices().data(),
+        &buffer_size);
+
+    std::vector<unsigned char> buffer(buffer_size);
+
+    std::vector<int> value_perm(full_matrix.nonZeros());
+    std::iota(value_perm.begin(), value_perm.end(), 0);
+
+    auto result = cusolverSpXcsrpermHost(
+        handle, n, n, full_matrix.nonZeros(), desc, full_matrix.outerIndexPtr(),
+        full_matrix.innerIndexPtr(), P.indices().data(), P.indices().data(),
+        value_perm.data(), buffer.data());
+
+    if (result != CUSOLVER_STATUS_SUCCESS) {
+      std::cout << "Error: Permutation failed" << std::endl;
+    }
+
+    cudaMalloc((void**)&vp_dev, sizeof(int) * full_matrix.nonZeros());
+    cudaMemcpy(vp_dev, value_perm.data(), sizeof(int) * full_matrix.nonZeros(),
+               cudaMemcpyKind::cudaMemcpyDefault);
+  }
+
+  void permute_matrix_values() {
+    cudaMemcpy(data, full_matrix.valuePtr(),
+               sizeof(DataType) * full_matrix.nonZeros(),
+               cudaMemcpyKind::cudaMemcpyDefault);
+    cusparseDgthr(sphandle, full_matrix.nonZeros(), data, data_perm, vp_dev,
+                  CUSPARSE_INDEX_BASE_ZERO);
+  }
+
  public:
-  LLTSolverCUDALowLevel()
+  LLTSolverCUDA()
       : first_iter(true),
         data(nullptr),
         outerIndices(nullptr),
         innerIndices(nullptr),
         b_dev(nullptr),
         x_dev(nullptr),
+        p_dev(nullptr),
+        pt_dev(nullptr),
+        vp_dev(nullptr),
+        data_perm(nullptr),
         workspace_buffer(nullptr) {
     static_assert(std::is_same<double, DataType>(),
                   "Only doubles supported by solver!");
     cusolverSpCreate(&handle);
+    cusparseCreate(&sphandle);
+
     cusolverSpCreateCsrcholInfo(&chol_info);
 
     cusparseCreateMatDescr(&desc);
     cusparseSetMatType(desc, CUSPARSE_MATRIX_TYPE_GENERAL);
-    cusparseSetMatFillMode(
-        desc, CUSPARSE_FILL_MODE_LOWER);  // we generate UT CCS matrices, which
-                                          // should be CSR lower when transposed
+    // cusparseSetMatFillMode(
+    //     desc, CUSPARSE_FILL_MODE_LOWER);  // we generate UT CCS matrices,
+    //     which
+    //                                       // should be CSR lower when
+    //                                       transposed
     cusparseSetMatDiagType(desc, CUSPARSE_DIAG_TYPE_NON_UNIT);
     cusparseSetMatIndexBase(desc, CUSPARSE_INDEX_BASE_ZERO);
   }
 
-  ~LLTSolverCUDALowLevel() {
-    if (data) {
-      cudaFree(data);
-      cudaFree(outerIndices);
-      cudaFree(innerIndices);
-      cudaFree(b_dev);
-      cudaFree(x_dev);
-      cudaFree(workspace_buffer);
-    }
+  ~LLTSolverCUDA() {
+    cudaFree(data);
+    cudaFree(data_perm);
+    cudaFree(outerIndices);
+    cudaFree(innerIndices);
+    cudaFree(b_dev);
+    cudaFree(x_dev);
+
+    cudaFree(p_dev);
+    cudaFree(pt_dev);
+    cudaFree(vp_dev);
+
+    cudaFree(workspace_buffer);
+
     cusparseDestroyMatDescr(desc);
     cusolverSpDestroyCsrcholInfo(chol_info);
+    cusparseDestroy(sphandle);
     cusolverSpDestroy(handle);
   }
 
@@ -194,63 +134,107 @@ class LLTSolverCUDALowLevel : public LinearSolver<DataType> {
              BufferPtr<DataType> b) override {
     if (first_iter) {
       A->fill_csc2(matrix, true);
+      // create full symmetric matrix with both upper and lower triangular parts
+      full_matrix = matrix.template selfadjointView<Eigen::Upper>();
+      full_matrix.makeCompressed();
+      // Get permutation matrix and copy it, and its inverse, into the device
+      auto P = A->get_ordered_permutation(true);
 
-      int nnz = matrix.nonZeros();
+      // copy into device
+      int n = matrix.cols();
+      cudaMalloc((void**)&p_dev, sizeof(int) * n);
+      cudaMemcpy(p_dev, P.indices().data(), sizeof(int) * n,
+                 cudaMemcpyKind::cudaMemcpyDefault);
+
+      pt.resize(n);
+
+      for (int i = 0; i < n; i++) {
+        pt[P.indices()[i]] = i;
+      }
+
+      cudaMalloc((void**)&pt_dev, sizeof(int) * n);
+      cudaMemcpy(pt_dev, pt.data(), sizeof(int) * n,
+                 cudaMemcpyKind::cudaMemcpyDefault);
+
+      // carry on
+      int nnz = full_matrix.nonZeros();
 
       cudaMalloc((void**)&data, sizeof(DataType) * nnz);
-      cudaMalloc((void**)&outerIndices, sizeof(int) * (matrix.outerSize() + 1));
+      cudaMalloc((void**)&data_perm, sizeof(DataType) * nnz);
+
+      cudaMalloc((void**)&outerIndices,
+                 sizeof(int) * (full_matrix.outerSize() + 1));
       cudaMalloc((void**)&innerIndices, sizeof(int) * nnz);
 
       cudaMalloc((void**)&b_dev, b->mem_size());
       cudaMalloc((void**)&x_dev, x->mem_size());
 
-      cudaMemcpy(outerIndices, matrix.outerIndexPtr(),
-                 sizeof(int) * (matrix.outerSize() + 1),
+      // now permute the matrix
+      permute_matrix(P);  // permute matrix on host
+
+      cudaMemcpy(outerIndices, full_matrix.outerIndexPtr(),
+                 sizeof(int) * (full_matrix.outerSize() + 1),
                  cudaMemcpyKind::cudaMemcpyDefault);
-      cudaMemcpy(innerIndices, matrix.innerIndexPtr(), sizeof(int) * nnz,
+      cudaMemcpy(innerIndices, full_matrix.innerIndexPtr(), sizeof(int) * nnz,
                  cudaMemcpyKind::cudaMemcpyDefault);
+      permute_matrix_values();  // upload data and permute
 
       // Analyze
-      cusolverSpXcsrcholAnalysis(handle, matrix.rows(), matrix.nonZeros(), desc,
-                                 outerIndices, innerIndices, chol_info);
+      cusolverSpXcsrcholAnalysis(handle, full_matrix.rows(),
+                                 full_matrix.nonZeros(), desc, outerIndices,
+                                 innerIndices, chol_info);
 
       // Create workspace buffer
-      cusolverSpDcsrcholBufferInfo(
-          handle, matrix.rows(), matrix.nonZeros(), desc, data, outerIndices,
-          innerIndices, chol_info, &internal_bytes, &workspace_bytes);
+      cusolverSpDcsrcholBufferInfo(handle, full_matrix.rows(),
+                                   full_matrix.nonZeros(), desc, data_perm,
+                                   outerIndices, innerIndices, chol_info,
+                                   &internal_bytes, &workspace_bytes);
 
       cudaMalloc(&workspace_buffer, workspace_bytes);
 
       first_iter = false;
     } else {
       A->fill_csc_values2(matrix.valuePtr(), true);
+
+      // permute and copy matrix values
+      full_matrix = matrix.template selfadjointView<Eigen::Upper>();
+      full_matrix.makeCompressed();
+      permute_matrix_values();
     }
-    cudaMemcpy(data, matrix.valuePtr(), sizeof(DataType) * matrix.nonZeros(),
-                 cudaMemcpyKind::cudaMemcpyDefault);
-    cudaMemcpy(b_dev, b->map(), b->mem_size(),
+
+    // copy b into x_dev and permute into b_dev
+    cudaMemcpy(x_dev, b->map(), b->mem_size(),
                cudaMemcpyKind::cudaMemcpyDefault);
+    cusparseDgthr(sphandle, b->size(), x_dev, b_dev, p_dev,
+                  CUSPARSE_INDEX_BASE_ZERO);
+
     cudaMemset(x_dev, 0, x->mem_size());
 
-    auto t0 = std::chrono::high_resolution_clock::now();
+    // auto t0 = std::chrono::high_resolution_clock::now();
 
     // solve
-    cusolverSpDcsrcholFactor(handle, matrix.rows(), matrix.nonZeros(), desc,
-                             data, outerIndices, innerIndices, chol_info,
-                             workspace_buffer);
-    auto status = cusolverSpDcsrcholSolve(handle, matrix.rows(), b_dev, x_dev,
-                                          chol_info, workspace_buffer);
-    cudaMemcpy(x->map(), x_dev, x->mem_size(),
-               cudaMemcpyKind::cudaMemcpyDefault);
+    cusolverSpDcsrcholFactor(handle, full_matrix.rows(), full_matrix.nonZeros(),
+                             desc, data_perm, outerIndices, innerIndices,
+                             chol_info, workspace_buffer);
 
-    auto t1 = std::chrono::high_resolution_clock::now();
+    auto status = cusolverSpDcsrcholSolve(handle, full_matrix.rows(), b_dev,
+                                          x_dev, chol_info, workspace_buffer);
+
+    // auto t1 = std::chrono::high_resolution_clock::now();
     // fmt::print("cuSolver Took: {}\n", std::chrono::duration<double>(t1 -
     // t0).count());
 
     if (status != cusolverStatus_t::CUSOLVER_STATUS_SUCCESS) {
-      std::cerr << "Error: LLTSolverCUDALowLevel returned status " << status
-                << "!\n";
+      std::cerr << "Error: LLTSolverCUDA returned status " << status << "!\n";
       return false;
     }
+
+    // permute result and copy back
+    cusparseDgthr(sphandle, x->size(), x_dev, b_dev, pt_dev,
+                  CUSPARSE_INDEX_BASE_ZERO);
+
+    cudaMemcpy(x->map(), b_dev, x->mem_size(),
+               cudaMemcpyKind::cudaMemcpyDefault);
 
     return true;
   }

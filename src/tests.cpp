@@ -3121,8 +3121,7 @@ TEST(PGO, LLTCUDA) {
   auto ta = std::chrono::high_resolution_clock::now();
   ASSERT_TRUE(solver->solve(hschur, xp, bschur_expected));
   auto tb = std::chrono::high_resolution_clock::now();
-  // fmt::print("PGO-LDLT Took: {}\n", std::chrono::duration<double>(tb -
-  // ta).count());
+  // fmt::print("PGO-LDLT Took: {}\n", std::chrono::duration<double>(tb - ta).count());
 
   // Read output
   auto sync_x = create_sync_object();
@@ -3153,67 +3152,6 @@ TEST(PGO, LLTCUDA) {
   delete solver;
 }
 
-TEST(PGO, LLTCUDALowLevel) {
-  auto btd = BufferType::DeviceCached;
-
-  // Load Data
-  auto hschur = std::make_shared<SparseBlockMatrix<double>>(engine);
-  hschur->loadFromFile("data-pgo/hpp.txt", btd);
-  auto sync_Hschur = create_sync_object();
-  sync_Hschur->rec<double>({hschur->get_buffer()});
-  sync_Hschur->sync_device();
-  auto hschur_csc = hschur->to_csc();
-
-  LinearSolver<double>* solver = new LLTSolverCUDALowLevel<double>();
-
-  auto bschur_expected =
-      loadFromFile<double>(engine, "data-pgo/bschur.txt", btd);
-  auto xp =
-      engine.create_buffer<double>(nullptr, hschur->num_scalar_rows(), btd);
-
-  // sync bschur
-  auto sync_b = create_sync_object();
-  sync_b->rec<double>({bschur_expected});
-  sync_b->sync_device();
-
-  // Solver Setup
-  solver->setup(hschur, xp, bschur_expected);
-
-  // Run Solver
-  auto ta = std::chrono::high_resolution_clock::now();
-  ASSERT_TRUE(solver->solve(hschur, xp, bschur_expected));
-  auto tb = std::chrono::high_resolution_clock::now();
-  // fmt::print("PGO-LDLT Took: {}\n", std::chrono::duration<double>(tb -
-  // ta).count());
-
-  // Read output
-  auto sync_x = create_sync_object();
-  sync_x->rec<double>({xp});
-  // sync_x->sync_local();
-
-  auto xk1_map = Eigen::Map<Eigen::MatrixXd>(xp->map(), xp->size(), 1);
-
-  auto A = hschur_csc.selfadjointView<Eigen::Upper>();
-
-  auto bschur_map = Eigen::Map<Eigen::MatrixXd>(bschur_expected->map(),
-                                                bschur_expected->size(), 1);
-
-  Eigen::VectorXd d1 = A * xk1_map;
-  auto d2 = bschur_map;
-  std::cout << "Difference: " << (d1 - d2).norm() << std::endl;
-  ASSERT_TRUE((d1).isApprox(d2, 1e-3));
-
-  // repeat once more time to test other path
-  ta = std::chrono::high_resolution_clock::now();
-  ASSERT_TRUE(solver->solve(hschur, xp, bschur_expected));
-  tb = std::chrono::high_resolution_clock::now();
-  // // fmt::print("2nd Iteration took: {}\n",std::chrono::duration<double>(tb -
-  // ta).count());
-  d1 = A * xk1_map;
-  ASSERT_TRUE((d1).isApprox(d2, 1e-3));
-
-  delete solver;
-}
 
 #endif
 
