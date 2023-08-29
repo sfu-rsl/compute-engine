@@ -259,6 +259,19 @@ class LLTSolverCUDA : public LinearSolver<DataType> {
       return false;
     }
 
+    // check singularity
+    int singularity = -1;
+    if (cusolverStatus_t::CUSOLVER_STATUS_SUCCESS !=
+        cusolverSpDcsrcholZeroPivot(handle, chol_info, 0.0, &singularity)) {
+      std::cerr << "Error: LLTSolverCUDA Zero-Pivot check failed!" << std::endl;
+      return false;
+    }
+
+    if (singularity != -1) {
+      std::cerr << "Error: Matrix is not positive definite!" << std::endl;
+      return false;
+    }
+
     // permute result and copy back
     cusparseDgthr(sphandle, x->size(), x_dev, b_dev, pt_dev,
                   CUSPARSE_INDEX_BASE_ZERO);
