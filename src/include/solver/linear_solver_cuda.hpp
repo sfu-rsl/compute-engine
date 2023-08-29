@@ -34,6 +34,7 @@ class LLTSolverCUDA : public LinearSolver<DataType> {
   int reorder;
   size_t internal_bytes;
   size_t workspace_bytes;
+  size_t device_bytes;
   void* workspace_buffer;
 
   std::vector<int> pt;
@@ -67,7 +68,10 @@ class LLTSolverCUDA : public LinearSolver<DataType> {
       std::cout << "Error: Permutation failed" << std::endl;
     }
 
-    cudaMalloc((void**)&vp_dev, sizeof(int) * full_matrix.nonZeros());
+    const size_t sz_perm_values = sizeof(int) * full_matrix.nonZeros();
+    cudaMalloc((void**)&vp_dev, sz_perm_values);
+    device_bytes += sz_perm_values;
+
     cudaMemcpy(vp_dev, value_perm.data(), sizeof(int) * full_matrix.nonZeros(),
                cudaMemcpyKind::cudaMemcpyDefault);
   }
@@ -93,6 +97,7 @@ class LLTSolverCUDA : public LinearSolver<DataType> {
         pt_dev(nullptr),
         vp_dev(nullptr),
         data_perm(nullptr),
+        device_bytes(0),
         workspace_buffer(nullptr) {
     static_assert(std::is_same<double, DataType>(),
                   "Only doubles supported by solver!");
@@ -148,9 +153,13 @@ class LLTSolverCUDA : public LinearSolver<DataType> {
         amd_ordering(matrix, P);
       }
       // copy into device
-      int n = matrix.cols();
-      cudaMalloc((void**)&p_dev, sizeof(int) * n);
-      cudaMemcpy(p_dev, P.indices().data(), sizeof(int) * n,
+      int n = full_matrix.cols();
+
+      const size_t sz_perm = sizeof(int) * n;
+
+      cudaMalloc((void**)&p_dev, sz_perm);
+      device_bytes += sz_perm;
+      cudaMemcpy(p_dev, P.indices().data(), sz_perm,
                  cudaMemcpyKind::cudaMemcpyDefault);
 
       pt.resize(n);
@@ -159,22 +168,34 @@ class LLTSolverCUDA : public LinearSolver<DataType> {
         pt[P.indices()[i]] = i;
       }
 
-      cudaMalloc((void**)&pt_dev, sizeof(int) * n);
-      cudaMemcpy(pt_dev, pt.data(), sizeof(int) * n,
-                 cudaMemcpyKind::cudaMemcpyDefault);
+      cudaMalloc((void**)&pt_dev, sz_perm);
+      device_bytes += sz_perm;
+      cudaMemcpy(pt_dev, pt.data(), sz_perm, cudaMemcpyKind::cudaMemcpyDefault);
 
       // carry on
       int nnz = full_matrix.nonZeros();
 
-      cudaMalloc((void**)&data, sizeof(DataType) * nnz);
-      cudaMalloc((void**)&data_perm, sizeof(DataType) * nnz);
+      const size_t sz_nnz_values = sizeof(DataType) * nnz;
+      cudaMalloc((void**)&data, sz_nnz_values);
+      device_bytes += sz_nnz_values;
 
-      cudaMalloc((void**)&outerIndices,
-                 sizeof(int) * (full_matrix.outerSize() + 1));
-      cudaMalloc((void**)&innerIndices, sizeof(int) * nnz);
+      cudaMalloc((void**)&data_perm, sz_nnz_values);
+      device_bytes += sz_nnz_values;
+
+      const size_t sz_outer_indices =
+          sizeof(int) * (full_matrix.outerSize() + 1);
+      cudaMalloc((void**)&outerIndices, sz_outer_indices);
+      device_bytes += sz_outer_indices;
+
+      const size_t sz_inner_indices = sizeof(int) * nnz;
+      cudaMalloc((void**)&innerIndices, sz_inner_indices);
+      device_bytes += sz_inner_indices;
 
       cudaMalloc((void**)&b_dev, b->mem_size());
+      device_bytes += b->mem_size();
+
       cudaMalloc((void**)&x_dev, x->mem_size());
+      device_bytes += x->mem_size();
 
       // now permute the matrix
       permute_matrix(P);  // permute matrix on host
@@ -192,12 +213,14 @@ class LLTSolverCUDA : public LinearSolver<DataType> {
                                  innerIndices, chol_info);
 
       // Create workspace buffer
+      workspace_bytes = 0;
       cusolverSpDcsrcholBufferInfo(handle, full_matrix.rows(),
                                    full_matrix.nonZeros(), desc, data_perm,
                                    outerIndices, innerIndices, chol_info,
                                    &internal_bytes, &workspace_bytes);
 
       cudaMalloc(&workspace_buffer, workspace_bytes);
+      device_bytes += workspace_bytes;
 
       first_iter = false;
     } else {
@@ -247,6 +270,8 @@ class LLTSolverCUDA : public LinearSolver<DataType> {
   }
 
   bool result_gpu() override { return false; }
+
+  virtual size_t device_mem() override { return device_bytes; }
 };
 
 }  // namespace compute
