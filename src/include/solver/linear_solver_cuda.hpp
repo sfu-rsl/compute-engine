@@ -247,6 +247,19 @@ class LLTSolverCUDA : public LinearSolver<DataType> {
                              desc, data_perm, outerIndices, innerIndices,
                              chol_info, workspace_buffer);
 
+    // check singularity
+    int singularity = -1;
+    if (cusolverStatus_t::CUSOLVER_STATUS_SUCCESS !=
+        cusolverSpDcsrcholZeroPivot(handle, chol_info, 1e-14, &singularity)) {
+      std::cerr << "Error: LLTSolverCUDA Zero-Pivot check failed!" << std::endl;
+      return false;
+    }
+
+    if (singularity != -1) {
+      std::cerr << "Error: Matrix is not positive definite!" << std::endl;
+      return false;
+    }
+
     auto status = cusolverSpDcsrcholSolve(handle, full_matrix.rows(), b_dev,
                                           x_dev, chol_info, workspace_buffer);
 
@@ -256,19 +269,6 @@ class LLTSolverCUDA : public LinearSolver<DataType> {
 
     if (status != cusolverStatus_t::CUSOLVER_STATUS_SUCCESS) {
       std::cerr << "Error: LLTSolverCUDA returned status " << status << "!\n";
-      return false;
-    }
-
-    // check singularity
-    int singularity = -1;
-    if (cusolverStatus_t::CUSOLVER_STATUS_SUCCESS !=
-        cusolverSpDcsrcholZeroPivot(handle, chol_info, 0.0, &singularity)) {
-      std::cerr << "Error: LLTSolverCUDA Zero-Pivot check failed!" << std::endl;
-      return false;
-    }
-
-    if (singularity != -1) {
-      std::cerr << "Error: Matrix is not positive definite!" << std::endl;
       return false;
     }
 
