@@ -37,6 +37,14 @@ class LLTSolverCUDA : public LinearSolver<DataType> {
   size_t device_bytes;
   void* workspace_buffer;
 
+  cusparseDnVecDescr_t data_vec;
+  cusparseSpVecDescr_t data_perm_vec;
+
+  cusparseDnVecDescr_t x_dev_vec;
+  cusparseSpVecDescr_t b_dev_vec;
+  cusparseSpVecDescr_t b_dev_vec_pt;
+
+
   std::vector<int> pt;
   Eigen::SparseMatrix<DataType, Eigen::RowMajor> full_matrix;
   using decomp_method =
@@ -74,14 +82,22 @@ class LLTSolverCUDA : public LinearSolver<DataType> {
 
     cudaMemcpy(vp_dev, value_perm.data(), sizeof(int) * full_matrix.nonZeros(),
                cudaMemcpyKind::cudaMemcpyDefault);
+    
+    // Create cusparse vectors for permutation
+    cusparseCreateDnVec(&data_vec, full_matrix.nonZeros(), data, CUDA_R_64F);
+    cusparseCreateSpVec(&data_perm_vec, full_matrix.nonZeros(), full_matrix.nonZeros(),
+              vp_dev, data_perm, 
+              CUSPARSE_INDEX_32I, CUSPARSE_INDEX_BASE_ZERO, CUDA_R_64F);
   }
 
   void permute_matrix_values() {
     cudaMemcpy(data, full_matrix.valuePtr(),
                sizeof(DataType) * full_matrix.nonZeros(),
                cudaMemcpyKind::cudaMemcpyDefault);
-    cusparseDgthr(sphandle, full_matrix.nonZeros(), data, data_perm, vp_dev,
-                  CUSPARSE_INDEX_BASE_ZERO);
+    // cusparseDgthr(sphandle, full_matrix.nonZeros(), data, data_perm, vp_dev,
+    //               CUSPARSE_INDEX_BASE_ZERO);
+
+    cusparseGather(sphandle, data_vec, data_perm_vec);
   }
 
  public:
@@ -118,10 +134,22 @@ class LLTSolverCUDA : public LinearSolver<DataType> {
   }
 
   ~LLTSolverCUDA() {
+    // destroy vectors
+    if (data) {
+      cusparseDestroyDnVec(data_vec);
+      cusparseDestroySpVec(data_perm_vec);
+    }
     cudaFree(data);
     cudaFree(data_perm);
     cudaFree(outerIndices);
     cudaFree(innerIndices);
+
+    if (b_dev) {
+      cusparseDestroySpVec(b_dev_vec_pt);
+      cusparseDestroySpVec(b_dev_vec);
+      cusparseDestroyDnVec(x_dev_vec);
+    }
+
     cudaFree(b_dev);
     cudaFree(x_dev);
 
@@ -192,9 +220,17 @@ class LLTSolverCUDA : public LinearSolver<DataType> {
       device_bytes += sz_inner_indices;
 
       cudaMalloc((void**)&b_dev, b->mem_size());
+      cusparseCreateSpVec(&b_dev_vec, b->size(), b->size(),
+              p_dev, b_dev, 
+              CUSPARSE_INDEX_32I, CUSPARSE_INDEX_BASE_ZERO, CUDA_R_64F);
+      cusparseCreateSpVec(&b_dev_vec_pt, b->size(), b->size(),
+              pt_dev, b_dev, 
+              CUSPARSE_INDEX_32I, CUSPARSE_INDEX_BASE_ZERO, CUDA_R_64F);
+
       device_bytes += b->mem_size();
 
       cudaMalloc((void**)&x_dev, x->mem_size());
+      cusparseCreateDnVec(&x_dev_vec, x->size(), x_dev, CUDA_R_64F);
       device_bytes += x->mem_size();
 
       // now permute the matrix
@@ -235,8 +271,9 @@ class LLTSolverCUDA : public LinearSolver<DataType> {
     // copy b into x_dev and permute into b_dev
     cudaMemcpy(x_dev, b->map(), b->mem_size(),
                cudaMemcpyKind::cudaMemcpyDefault);
-    cusparseDgthr(sphandle, b->size(), x_dev, b_dev, p_dev,
-                  CUSPARSE_INDEX_BASE_ZERO);
+    // cusparseDgthr(sphandle, b->size(), x_dev, b_dev, p_dev,
+    //               CUSPARSE_INDEX_BASE_ZERO);
+    cusparseGather(sphandle, x_dev_vec, b_dev_vec);
 
     cudaMemset(x_dev, 0, x->mem_size());
 
@@ -273,8 +310,9 @@ class LLTSolverCUDA : public LinearSolver<DataType> {
     }
 
     // permute result and copy back
-    cusparseDgthr(sphandle, x->size(), x_dev, b_dev, pt_dev,
-                  CUSPARSE_INDEX_BASE_ZERO);
+    // cusparseDgthr(sphandle, x->size(), x_dev, b_dev, pt_dev,
+    //               CUSPARSE_INDEX_BASE_ZERO);
+    cusparseGather(sphandle, x_dev_vec, b_dev_vec_pt);
 
     cudaMemcpy(x->map(), b_dev, x->mem_size(),
                cudaMemcpyKind::cudaMemcpyDefault);
