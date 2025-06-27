@@ -36,6 +36,13 @@ namespace compute
         {
         }
 
+        void clear() {
+            seq->clear();
+            init_seq->clear();
+            init = true;
+            init_ops = false;
+        }
+
         template <typename DataType>
         void inner_product(VCBPtr<DataType> v1, VCBPtr<DataType> v2, VCBPtr<DataType> out1, VCBPtr<DataType> out2)
         {

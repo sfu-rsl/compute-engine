@@ -71,6 +71,27 @@ namespace compute {
 
     std::shared_ptr<VulkanSolverSeq> VulkanComputeEngine::create_op_sequence()
     {
+        seq_mut.lock();
+
+        if (!sequences.empty()) {
+            auto seq = sequences.back();
+            sequences.pop_back();
+            seq_mut.unlock();
+
+            return seq;
+        }
+        seq_mut.unlock();
+        
         return std::make_shared<VulkanSolverSeq>(mgr.sequence(), mgr.sequence(), this);
     }
+    void VulkanComputeEngine::recycle_sequence(std::shared_ptr<VulkanSolverSeq> seq) {
+        if (!seq) {
+            return;
+        }
+        seq->clear();
+        seq_mut.lock();
+        sequences.push_back(seq);
+        seq_mut.unlock();
+    }
+
 }

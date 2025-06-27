@@ -4,6 +4,7 @@
 #include <vector>
 #include <unordered_map>
 #include <atomic>
+#include <mutex>
 
 #include <solver/interfaces.h>
 
@@ -95,6 +96,8 @@ namespace compute
 
         // Create object for recording linear solver sequence
         std::shared_ptr<VulkanSolverSeq> create_op_sequence();
+        void recycle_sequence(std::shared_ptr<VulkanSolverSeq> seq);
+        
 
         kp::Manager &get_manager_ref()
         {
@@ -104,6 +107,8 @@ namespace compute
     private:
         // private members
         kp::Manager mgr;
+        std::mutex seq_mut;
+        std::vector<std::shared_ptr<VulkanSolverSeq>> sequences;
 
     public:
         std::vector<uint32_t> spv_sbm_multiply_subgroup;
